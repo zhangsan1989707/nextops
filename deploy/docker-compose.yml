@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nextops-postgres
+    environment:
+      POSTGRES_DB: nextops
+      POSTGRES_USER: nextops
+      POSTGRES_PASSWORD: nextops
+    ports:
+      - "5432:5432"
+    volumes:
+      - nextops-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextops -d nextops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nextops-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../apps/api
+    container_name: nextops-api
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://nextops:nextops@postgres:5432/nextops
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../apps/web
+    container_name: nextops-web
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  nextops-postgres-data:
+
