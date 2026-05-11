@@ -56,6 +56,15 @@ type ChatResponse = {
   reply: string;
 };
 
+type ServerDraft = {
+  hostname: string;
+  ip: string;
+  port: string;
+  environment: string;
+  os: string;
+  tags: string;
+};
+
 const menuGroups = [
   {
     title: "核心业务",
@@ -101,6 +110,18 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 export function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -108,6 +129,7 @@ export function App() {
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
+  const [loadingServers, setLoadingServers] = useState(false);
 
   const activeLabel = useMemo(() => {
     for (const group of menuGroups) {
@@ -117,13 +139,23 @@ export function App() {
     return "仪表盘";
   }, [activePage]);
 
+  async function refreshData() {
+    const [nextSummary, nextServers] = await Promise.all([
+      fetchJson<DashboardSummary>("/api/dashboard/summary"),
+      fetchJson<{ items: ServerItem[] }>("/api/servers")
+    ]);
+    setSummary(nextSummary);
+    setServers(nextServers.items);
+  }
+
   useEffect(() => {
-    fetchJson<DashboardSummary>("/api/dashboard/summary")
-      .then(setSummary)
-      .catch(() => setSummary(null));
-    fetchJson<{ items: ServerItem[] }>("/api/servers")
-      .then((data) => setServers(data.items))
-      .catch(() => setServers([]));
+    setLoadingServers(true);
+    refreshData()
+      .catch(() => {
+        setSummary(null);
+        setServers([]);
+      })
+      .finally(() => setLoadingServers(false));
   }, []);
 
   async function sendMessage(event: FormEvent) {
@@ -202,7 +234,9 @@ export function App() {
             loading={loadingChat}
           />
         )}
-        {activePage === "servers" && <Servers servers={servers} />}
+        {activePage === "servers" && (
+          <Servers servers={servers} loading={loadingServers} onServerCreated={refreshData} />
+        )}
         {activePage !== "dashboard" && activePage !== "chatops" && activePage !== "servers" && (
           <Placeholder title={activeLabel} />
         )}
@@ -347,18 +381,100 @@ function ChatOps({
   );
 }
 
-function Servers({ servers }: { servers: ServerItem[] }) {
+function Servers({
+  servers,
+  loading,
+  onServerCreated
+}: {
+  servers: ServerItem[];
+  loading: boolean;
+  onServerCreated: () => Promise<void>;
+}) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ServerDraft>({
+    hostname: "demo-node-01",
+    ip: "192.168.1.20",
+    port: "22",
+    environment: "staging",
+    os: "Ubuntu 22.04 LTS",
+    tags: "demo,agent-pending"
+  });
+
+  async function createServer(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await postJson<ServerItem>("/api/servers", {
+        ...draft,
+        port: Number(draft.port),
+        tags: draft.tags
+      });
+      setShowCreate(false);
+      await onServerCreated();
+    } catch {
+      setError("服务器创建失败，请检查 IP、端口和后端服务状态。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function updateDraft(key: keyof ServerDraft, value: string) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
   return (
-    <section className="panel full">
+    <section className="panel full server-page">
       <div className="panel-header">
         <div>
           <p className="eyebrow">资产纳管</p>
           <h2>服务器列表</h2>
         </div>
-        <button className="primary-button" type="button">
-          <Server size={16} /> 新增服务器
+        <button className="primary-button" onClick={() => setShowCreate((value) => !value)} type="button">
+          <Server size={16} /> {showCreate ? "收起表单" : "新增服务器"}
         </button>
       </div>
+      {showCreate && (
+        <form className="create-server-form" onSubmit={createServer}>
+          <label>
+            主机名
+            <input value={draft.hostname} onChange={(event) => updateDraft("hostname", event.target.value)} />
+          </label>
+          <label>
+            IP 地址
+            <input value={draft.ip} onChange={(event) => updateDraft("ip", event.target.value)} />
+          </label>
+          <label>
+            端口
+            <input value={draft.port} onChange={(event) => updateDraft("port", event.target.value)} />
+          </label>
+          <label>
+            环境
+            <select value={draft.environment} onChange={(event) => updateDraft("environment", event.target.value)}>
+              <option value="production">production</option>
+              <option value="staging">staging</option>
+              <option value="testing">testing</option>
+              <option value="development">development</option>
+            </select>
+          </label>
+          <label>
+            系统
+            <input value={draft.os} onChange={(event) => updateDraft("os", event.target.value)} />
+          </label>
+          <label>
+            标签
+            <input value={draft.tags} onChange={(event) => updateDraft("tags", event.target.value)} />
+          </label>
+          <div className="form-actions">
+            {error && <span>{error}</span>}
+            <button className="primary-button" disabled={saving} type="submit">
+              {saving ? "保存中" : "保存并纳管"}
+            </button>
+          </div>
+        </form>
+      )}
       <div className="table">
         <div className="table-row table-head">
           <span>主机</span>
@@ -369,6 +485,8 @@ function Servers({ servers }: { servers: ServerItem[] }) {
           <span>磁盘</span>
           <span>操作</span>
         </div>
+        {loading && <div className="table-empty">正在加载服务器资产...</div>}
+        {!loading && servers.length === 0 && <div className="table-empty">暂无服务器资产</div>}
         {servers.map((server) => (
           <div className="table-row" key={server.id}>
             <span>
@@ -427,4 +545,3 @@ function Placeholder({ title }: { title: string }) {
     </section>
   );
 }
-

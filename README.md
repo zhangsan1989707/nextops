@@ -18,7 +18,7 @@ npm run docker:up
 
 Open:
 
-- Web: http://localhost:3000
+- Web: http://localhost:3019
 - API health: http://localhost:4000/health
 
 ## Repository Layout
@@ -41,4 +41,3 @@ docs/
 - Server list and server health detail.
 - Alert, script, tenant, approval, model, member and permission placeholders.
 - Docker Compose for web, API, PostgreSQL and Redis.
-
