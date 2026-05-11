@@ -32,34 +32,34 @@ app.get("/health", (_req, res) => {
 
 app.get("/api/dashboard/summary", async (_req, res, next) => {
   try {
-  const [servers, alerts, scripts] = await Promise.all([getServers(), getAlerts(), getScripts()]);
-  const onlineServers = servers.filter((server) => server.agentStatus === "online").length;
-  const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").length;
+    const [servers, alerts, scripts] = await Promise.all([getServers(), getAlerts(), getScripts()]);
+    const onlineServers = servers.filter((server) => server.agentStatus === "online").length;
+    const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").length;
 
-  res.json({
-    servers: {
-      total: servers.length,
-      online: onlineServers,
-      warning: servers.filter((server) => server.status === "warning").length,
-      offline: servers.filter((server) => server.status === "offline").length
-    },
-    alerts: {
-      total: alerts.length,
-      critical: criticalAlerts,
-      open: alerts.filter((alert) => alert.status === "open").length
-    },
-    automation: {
-      slashCommands: slashCommands.length,
-      scripts: scripts.length,
-      aiDiagnosesToday: 12
-    },
-    trends: [
-      { label: "00:00", cpu: 39, memory: 61, alerts: 1 },
-      { label: "04:00", cpu: 45, memory: 66, alerts: 1 },
-      { label: "08:00", cpu: 57, memory: 72, alerts: 2 },
-      { label: "12:00", cpu: 51, memory: 69, alerts: 1 }
-    ]
-  });
+    res.json({
+      servers: {
+        total: servers.length,
+        online: onlineServers,
+        warning: servers.filter((server) => server.status === "warning").length,
+        offline: servers.filter((server) => server.status === "offline").length
+      },
+      alerts: {
+        total: alerts.length,
+        critical: criticalAlerts,
+        open: alerts.filter((alert) => alert.status === "open").length
+      },
+      automation: {
+        slashCommands: slashCommands.length,
+        scripts: scripts.length,
+        aiDiagnosesToday: 12
+      },
+      trends: [
+        { label: "00:00", cpu: 39, memory: 61, alerts: 1 },
+        { label: "04:00", cpu: 45, memory: 66, alerts: 1 },
+        { label: "08:00", cpu: 57, memory: 72, alerts: 2 },
+        { label: "12:00", cpu: 51, memory: 69, alerts: 1 }
+      ]
+    });
   } catch (error) {
     next(error);
   }
@@ -139,27 +139,99 @@ app.post("/api/servers", async (req, res, next) => {
 
 app.get("/api/servers/:id", async (req, res, next) => {
   try {
-  const server = await getServer(req.params.id);
-  if (!server) {
-    res.status(404).json({ message: "Server not found" });
-    return;
-  }
+    const server = await getServer(req.params.id);
+    if (!server) {
+      res.status(404).json({ message: "Server not found" });
+      return;
+    }
 
-  res.json({
-    ...server,
-    system: {
-      kernel: "6.5.0",
-      cpuModel: "Apple demo compatible x86_64",
-      cpuCores: 8,
-      memoryTotalMb: 16384,
-      diskTotalGb: 512,
-      uptimeDays: 24
-    },
-    alertRules: [
-      { id: "rule-cpu-80", name: "CPU 使用率高于 80%", enabled: true },
-      { id: "rule-disk-85", name: "磁盘使用率高于 85%", enabled: true }
-    ]
-  });
+    res.json({
+      ...server,
+      system: {
+        kernel: "6.5.0",
+        cpuModel: "Apple demo compatible x86_64",
+        cpuCores: 8,
+        memoryTotalMb: 16384,
+        diskTotalGb: 512,
+        uptimeDays: 24,
+        networkCards: ["eth0", "docker0"],
+        bootTime: "2026-04-17T08:12:00.000Z"
+      },
+      realtime: [
+        { label: "10:00", cpu: Math.max(8, server.cpuUsage - 10), memory: Math.max(12, server.memoryUsage - 9) },
+        { label: "10:05", cpu: Math.max(8, server.cpuUsage - 4), memory: Math.max(12, server.memoryUsage - 5) },
+        { label: "10:10", cpu: server.cpuUsage, memory: server.memoryUsage },
+        { label: "10:15", cpu: Math.min(96, server.cpuUsage + 7), memory: Math.min(96, server.memoryUsage + 4) }
+      ],
+      alertRules: [
+        { id: "rule-cpu-80", name: "CPU 使用率高于 80%", metric: "cpu_usage", threshold: 80, enabled: true },
+        { id: "rule-disk-85", name: "磁盘使用率高于 85%", metric: "disk_usage", threshold: 85, enabled: true }
+      ]
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/servers/:id/agent/install-plan", async (req, res, next) => {
+  try {
+    const server = await getServer(req.params.id);
+    if (!server) {
+      res.status(404).json({ message: "Server not found" });
+      return;
+    }
+
+    res.json({
+      serverId: server.id,
+      title: `为 ${server.hostname} 部署 NextOps Agent`,
+      riskLevel: "medium",
+      steps: [
+        `通过 Web SSH 连接 ${server.ip}:${server.port}`,
+        "检测系统架构、发行版和已有 Agent 状态",
+        "下载 nextops-agent 安装包并写入租户绑定 Token",
+        "启动 Agent 服务并等待首次心跳",
+        "回写服务器配置、实时指标和日志采集状态"
+      ],
+      command: `curl -fsSL http://nextops.local/install-agent.sh | sudo NEXTOPS_SERVER=${server.id} bash`,
+      requiresApproval: server.environment === "production"
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/servers/:id/diagnose", async (req, res, next) => {
+  try {
+    const server = await getServer(req.params.id);
+    if (!server) {
+      res.status(404).json({ message: "Server not found" });
+      return;
+    }
+
+    const pressure = Math.max(server.cpuUsage, server.memoryUsage, server.diskUsage);
+    res.json({
+      serverId: server.id,
+      summary:
+        pressure >= 80
+          ? `${server.hostname} 存在资源压力，建议优先检查内存、磁盘和最近部署。`
+          : `${server.hostname} 当前指标处于可控范围，建议继续观察趋势。`,
+      evidence: [
+        `CPU 使用率 ${server.cpuUsage}%`,
+        `内存使用率 ${server.memoryUsage}%`,
+        `磁盘使用率 ${server.diskUsage}%`,
+        `Agent 状态 ${server.agentStatus}`
+      ],
+      possibleCauses:
+        pressure >= 80
+          ? ["业务流量突增", "后台任务占用资源", "日志或临时文件堆积", "最近发布导致资源使用升高"]
+          : ["暂无明显异常", "可建立基线后继续进行趋势判断"],
+      repairPlan: [
+        "查看最近 30 分钟性能曲线和告警事件",
+        "检查 top 进程、磁盘大文件和关键服务日志",
+        "必要时执行低风险清理或服务扩容",
+        "修复后持续观察 15 分钟"
+      ]
+    });
   } catch (error) {
     next(error);
   }

@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeft,
   Bell,
   Bot,
   Boxes,
@@ -16,6 +17,8 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Package,
+  PlayCircle,
+  RefreshCw,
   Search,
   Server,
   Settings,
@@ -46,7 +49,23 @@ type ServerItem = {
   cpuUsage: number;
   memoryUsage: number;
   diskUsage: number;
+  loadAvg: number;
   tags: string[];
+};
+
+type ServerDetailData = ServerItem & {
+  system: {
+    kernel: string;
+    cpuModel: string;
+    cpuCores: number;
+    memoryTotalMb: number;
+    diskTotalGb: number;
+    uptimeDays: number;
+    networkCards: string[];
+    bootTime: string;
+  };
+  realtime: Array<{ label: string; cpu: number; memory: number }>;
+  alertRules: Array<{ id: string; name: string; metric: string; threshold: number; enabled: boolean }>;
 };
 
 type ChatResponse = {
@@ -63,6 +82,21 @@ type ServerDraft = {
   environment: string;
   os: string;
   tags: string;
+};
+
+type AgentInstallPlan = {
+  title: string;
+  riskLevel: string;
+  steps: string[];
+  command: string;
+  requiresApproval: boolean;
+};
+
+type DiagnosisReport = {
+  summary: string;
+  evidence: string[];
+  possibleCauses: string[];
+  repairPlan: string[];
 };
 
 const menuGroups = [
@@ -130,12 +164,14 @@ export function App() {
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
   const [loadingServers, setLoadingServers] = useState(false);
+  const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
 
   const activeLabel = useMemo(() => {
     for (const group of menuGroups) {
       const found = group.items.find((item) => item.key === activePage);
       if (found) return found.label;
     }
+    if (activePage === "server-detail") return "服务器详情";
     return "仪表盘";
   }, [activePage]);
 
@@ -235,11 +271,29 @@ export function App() {
           />
         )}
         {activePage === "servers" && (
-          <Servers servers={servers} loading={loadingServers} onServerCreated={refreshData} />
+          <Servers
+            servers={servers}
+            loading={loadingServers}
+            onOpenServer={(serverId) => {
+              setSelectedServerId(serverId);
+              setActivePage("server-detail");
+            }}
+            onServerCreated={refreshData}
+          />
         )}
-        {activePage !== "dashboard" && activePage !== "chatops" && activePage !== "servers" && (
-          <Placeholder title={activeLabel} />
+        {activePage === "server-detail" && selectedServerId && (
+          <ServerDetail
+            serverId={selectedServerId}
+            onBack={() => {
+              setSelectedServerId(null);
+              setActivePage("servers");
+            }}
+          />
         )}
+        {activePage !== "dashboard" &&
+          activePage !== "chatops" &&
+          activePage !== "servers" &&
+          activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
   );
@@ -384,10 +438,12 @@ function ChatOps({
 function Servers({
   servers,
   loading,
+  onOpenServer,
   onServerCreated
 }: {
   servers: ServerItem[];
   loading: boolean;
+  onOpenServer: (serverId: string) => void;
   onServerCreated: () => Promise<void>;
 }) {
   const [showCreate, setShowCreate] = useState(false);
@@ -490,7 +546,9 @@ function Servers({
         {servers.map((server) => (
           <div className="table-row" key={server.id}>
             <span>
-              <strong>{server.hostname}</strong>
+              <button className="link-button" onClick={() => onOpenServer(server.id)} type="button">
+                {server.hostname}
+              </button>
               <small>{server.ip}:{server.port}</small>
             </span>
             <span>{server.environment}</span>
@@ -500,13 +558,225 @@ function Servers({
             <span>{server.diskUsage}%</span>
             <span className="row-actions">
               <button title="Web SSH" type="button"><Terminal size={16} /></button>
-              <button title="性能图" type="button"><Activity size={16} /></button>
-              <button title="告警规则" type="button"><Bell size={16} /></button>
+              <button onClick={() => onOpenServer(server.id)} title="性能图" type="button"><Activity size={16} /></button>
+              <button onClick={() => onOpenServer(server.id)} title="告警规则" type="button"><Bell size={16} /></button>
             </span>
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => void }) {
+  const [server, setServer] = useState<ServerDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [installPlan, setInstallPlan] = useState<AgentInstallPlan | null>(null);
+  const [diagnosis, setDiagnosis] = useState<DiagnosisReport | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchJson<ServerDetailData>(`/api/servers/${serverId}`)
+      .then(setServer)
+      .finally(() => setLoading(false));
+  }, [serverId]);
+
+  async function loadInstallPlan() {
+    setActionLoading("agent");
+    try {
+      setInstallPlan(await postJson<AgentInstallPlan>(`/api/servers/${serverId}/agent/install-plan`, {}));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function runDiagnosis() {
+    setActionLoading("diagnose");
+    try {
+      setDiagnosis(await postJson<DiagnosisReport>(`/api/servers/${serverId}/diagnose`, {}));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  if (loading) {
+    return <section className="placeholder"><RefreshCw size={30} /><h2>正在加载服务器详情</h2></section>;
+  }
+
+  if (!server) {
+    return <section className="placeholder"><Server size={30} /><h2>服务器不存在</h2></section>;
+  }
+
+  const detailCards = [
+    { label: "CPU", value: `${server.cpuUsage}%`, icon: Gauge, tone: "blue" },
+    { label: "内存", value: `${server.memoryUsage}%`, icon: Database, tone: "green" },
+    { label: "磁盘", value: `${server.diskUsage}%`, icon: HardDrive, tone: "amber" },
+    { label: "负载", value: server.loadAvg.toFixed(2), icon: Activity, tone: "pink" }
+  ];
+
+  return (
+    <div className="server-detail">
+      <section className="detail-hero">
+        <div>
+          <button className="text-button" onClick={onBack} type="button">
+            <ArrowLeft size={16} /> 返回服务器列表
+          </button>
+          <h2>{server.hostname}</h2>
+          <p>{server.ip}:{server.port} · {server.os} · {server.environment}</p>
+          <div className="tag-row">
+            {server.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        </div>
+        <div className="detail-actions">
+          <button className="secondary-button" type="button">
+            <Terminal size={16} /> Web SSH
+          </button>
+          <button className="secondary-button" disabled={actionLoading === "agent"} onClick={loadInstallPlan} type="button">
+            <PlayCircle size={16} /> Agent 部署计划
+          </button>
+          <button className="primary-button" disabled={actionLoading === "diagnose"} onClick={runDiagnosis} type="button">
+            <Bot size={16} /> AI 诊断
+          </button>
+        </div>
+      </section>
+
+      <section className="metric-grid">
+        {detailCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <article className="metric-card" key={card.label}>
+              <div className={`metric-icon ${card.tone}`}>
+                <Icon size={20} />
+              </div>
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+            </article>
+          );
+        })}
+      </section>
+
+      <section className="detail-grid">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">实时监控</p>
+              <h2>性能图</h2>
+            </div>
+          </div>
+          <div className="mini-chart">
+            {server.realtime.map((point) => (
+              <div className="mini-chart-item" key={point.label}>
+                <span>{point.label}</span>
+                <div>
+                  <i style={{ height: `${point.cpu}%` }} />
+                  <i style={{ height: `${point.memory}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">配置</p>
+              <h2>系统详细配置</h2>
+            </div>
+          </div>
+          <dl className="config-list">
+            <div><dt>内核</dt><dd>{server.system.kernel}</dd></div>
+            <div><dt>CPU</dt><dd>{server.system.cpuModel}</dd></div>
+            <div><dt>核心数</dt><dd>{server.system.cpuCores}</dd></div>
+            <div><dt>内存</dt><dd>{server.system.memoryTotalMb} MB</dd></div>
+            <div><dt>磁盘</dt><dd>{server.system.diskTotalGb} GB</dd></div>
+            <div><dt>网卡</dt><dd>{server.system.networkCards.join(", ")}</dd></div>
+          </dl>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">告警</p>
+              <h2>专属告警规则</h2>
+            </div>
+            <button className="text-button" type="button">新建规则 <ChevronRight size={16} /></button>
+          </div>
+          <div className="rule-list">
+            {server.alertRules.map((rule) => (
+              <div className="rule-item" key={rule.id}>
+                <div>
+                  <strong>{rule.name}</strong>
+                  <span>{rule.metric} / 阈值 {rule.threshold}</span>
+                </div>
+                <span className={rule.enabled ? "status online" : "status"}>{rule.enabled ? "enabled" : "disabled"}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Agent</p>
+              <h2>纳管状态</h2>
+            </div>
+          </div>
+          <div className="agent-state">
+            <span className={`status ${server.agentStatus}`}>{server.agentStatus}</span>
+            <p>通过 Agent 上报指标、配置、日志和脚本执行状态。未安装服务器可先生成部署计划，后续接入真实 Web SSH 执行。</p>
+          </div>
+        </article>
+      </section>
+
+      {(installPlan || diagnosis) && (
+        <section className="detail-grid">
+          {installPlan && (
+            <article className="panel wide-card">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">执行计划</p>
+                  <h2>{installPlan.title}</h2>
+                </div>
+                <span className="status">{installPlan.requiresApproval ? "requires approval" : installPlan.riskLevel}</span>
+              </div>
+              <ol className="plan-list">
+                {installPlan.steps.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+              <pre className="command-block">{installPlan.command}</pre>
+            </article>
+          )}
+
+          {diagnosis && (
+            <article className="panel wide-card">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">AI 诊断</p>
+                  <h2>诊断报告</h2>
+                </div>
+              </div>
+              <p className="diagnosis-summary">{diagnosis.summary}</p>
+              <div className="diagnosis-grid">
+                <ListBlock title="证据链" items={diagnosis.evidence} />
+                <ListBlock title="可能原因" items={diagnosis.possibleCauses} />
+                <ListBlock title="修复方案" items={diagnosis.repairPlan} />
+              </div>
+            </article>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ListBlock({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="list-block">
+      <strong>{title}</strong>
+      <ul>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </div>
   );
 }
 
