@@ -70,6 +70,48 @@ export type AiModelInput = {
   apiKeySecret?: string | null;
 };
 
+export type MemberRecord = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  team: string;
+  status: string;
+  lastSeenAt: string | null;
+  permissions: string[];
+};
+
+export type TeamRecord = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  type: string;
+  status: string;
+  lead: string;
+  memberCount: number;
+  serverCount: number;
+  approvalSla: string;
+  description: string;
+  responsibilities: string[];
+  members: MemberRecord[];
+};
+
+export type RoleRecord = {
+  id: string;
+  name: string;
+  scope: string;
+  status: string;
+  memberCount: number;
+  description: string;
+  permissions: string[];
+};
+
+export type PermissionRecord = {
+  key: string;
+  label: string;
+  group: string;
+};
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL ?? "postgres://nextops:nextops@localhost:5432/nextops"
 });
@@ -229,6 +271,146 @@ const demoModels: AiModelInput[] = [
   }
 ];
 
+const demoMembers: MemberRecord[] = [
+  {
+    id: "mem-001",
+    name: "Leo Hang",
+    email: "leo@example.com",
+    role: "Owner",
+    team: "平台工程",
+    status: "active",
+    lastSeenAt: "2026-05-12T07:58:00.000Z",
+    permissions: ["全局配置", "模型管理", "审批处理", "服务器纳管"]
+  },
+  {
+    id: "mem-002",
+    name: "SRE Oncall",
+    email: "sre@example.com",
+    role: "SRE",
+    team: "稳定性团队",
+    status: "active",
+    lastSeenAt: "2026-05-12T06:40:00.000Z",
+    permissions: ["告警处理", "脚本执行", "AI 诊断"]
+  },
+  {
+    id: "mem-003",
+    name: "DevOps Reviewer",
+    email: "devops@example.com",
+    role: "Reviewer",
+    team: "DevOps Lab",
+    status: "pending",
+    lastSeenAt: null,
+    permissions: ["工单审核", "部署确认"]
+  }
+];
+
+const demoTeams: Omit<TeamRecord, "members">[] = [
+  {
+    id: "team-platform",
+    name: "平台工程",
+    parentId: null,
+    type: "root",
+    status: "active",
+    lead: "Leo Hang",
+    memberCount: 6,
+    serverCount: 12,
+    approvalSla: "30m",
+    description: "负责 NextOps 平台、模型网关、自动化编排和核心配置。",
+    responsibilities: ["平台配置", "模型管理", "权限治理", "自动化编排"]
+  },
+  {
+    id: "team-sre",
+    name: "稳定性团队",
+    parentId: "team-platform",
+    type: "sre",
+    status: "active",
+    lead: "SRE Oncall",
+    memberCount: 8,
+    serverCount: 27,
+    approvalSla: "15m",
+    description: "负责生产环境巡检、告警处理、排障与容量趋势分析。",
+    responsibilities: ["告警处理", "巡检", "故障诊断", "容量治理"]
+  },
+  {
+    id: "team-devops",
+    name: "DevOps Lab",
+    parentId: "team-platform",
+    type: "devops",
+    status: "active",
+    lead: "DevOps Reviewer",
+    memberCount: 5,
+    serverCount: 8,
+    approvalSla: "45m",
+    description: "负责 CI/CD 集成、脚本模板、包分发和发布审批。",
+    responsibilities: ["发布审批", "脚本模板", "包管理", "流水线集成"]
+  },
+  {
+    id: "team-cloud",
+    name: "私有云运维",
+    parentId: "team-platform",
+    type: "cloud",
+    status: "review",
+    lead: "Cloud Admin",
+    memberCount: 3,
+    serverCount: 15,
+    approvalSla: "60m",
+    description: "负责私有云接入、云原生资源和多协议插件驱动。",
+    responsibilities: ["私有云接入", "Kubernetes", "插件驱动", "云资源同步"]
+  }
+];
+
+const demoRoles: RoleRecord[] = [
+  {
+    id: "role-owner",
+    name: "Owner",
+    scope: "global",
+    status: "enabled",
+    memberCount: 1,
+    description: "拥有平台全部管理能力，适合平台负责人和超级管理员。",
+    permissions: ["dashboard:read", "server:manage", "script:execute", "approval:review", "model:manage", "member:manage", "role:manage"]
+  },
+  {
+    id: "role-sre",
+    name: "SRE",
+    scope: "tenant",
+    status: "enabled",
+    memberCount: 1,
+    description: "负责巡检、告警、诊断和常规自动化执行。",
+    permissions: ["dashboard:read", "server:manage", "script:execute", "approval:request"]
+  },
+  {
+    id: "role-reviewer",
+    name: "Reviewer",
+    scope: "tenant",
+    status: "enabled",
+    memberCount: 1,
+    description: "负责高风险脚本、包分发、生产变更的审批。",
+    permissions: ["dashboard:read", "approval:review", "script:read"]
+  },
+  {
+    id: "role-developer",
+    name: "Developer",
+    scope: "team",
+    status: "disabled",
+    memberCount: 0,
+    description: "允许查看资产、触发低风险脚本和发起部署申请。",
+    permissions: ["dashboard:read", "server:read", "script:read", "approval:request"]
+  }
+];
+
+const demoPermissions: PermissionRecord[] = [
+  { key: "dashboard:read", label: "查看仪表盘", group: "核心业务" },
+  { key: "server:read", label: "查看服务器", group: "资产" },
+  { key: "server:manage", label: "管理服务器", group: "资产" },
+  { key: "script:read", label: "查看脚本", group: "自动化" },
+  { key: "script:execute", label: "执行脚本", group: "自动化" },
+  { key: "approval:request", label: "发起审批", group: "审批" },
+  { key: "approval:review", label: "审核工单", group: "审批" },
+  { key: "model:manage", label: "管理模型", group: "设置" },
+  { key: "member:manage", label: "管理成员", group: "设置" },
+  { key: "role:manage", label: "管理角色", group: "设置" }
+];
+
 const migrations = [
   {
     id: "0001_core_assets",
@@ -297,6 +479,57 @@ const migrations = [
         on ai_models (is_default)
         where is_default;
     `
+  },
+  {
+    id: "0003_identity_access",
+    sql: `
+      create table if not exists members (
+        id text primary key,
+        name text not null,
+        email text not null unique,
+        role text not null,
+        team text not null,
+        status text not null,
+        last_seen_at timestamptz,
+        permissions text[] not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists teams (
+        id text primary key,
+        name text not null unique,
+        parent_id text,
+        team_type text not null,
+        status text not null,
+        lead text not null,
+        member_count integer not null default 0,
+        server_count integer not null default 0,
+        approval_sla text not null,
+        description text not null,
+        responsibilities text[] not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists roles (
+        id text primary key,
+        name text not null unique,
+        scope text not null,
+        status text not null,
+        member_count integer not null default 0,
+        description text not null,
+        permissions text[] not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists permissions (
+        key text primary key,
+        label text not null,
+        permission_group text not null
+      );
+    `
   }
 ];
 
@@ -342,6 +575,77 @@ export async function initializeDatabase() {
   if (Number(modelCount.rows[0]?.count ?? 0) === 0) {
     for (const model of demoModels) {
       await createAiModel(model);
+    }
+  }
+
+  await seedIdentityAccess();
+}
+
+async function seedIdentityAccess() {
+  const permissionCount = await pool.query<{ count: string }>("select count(*) from permissions");
+  if (Number(permissionCount.rows[0]?.count ?? 0) === 0) {
+    for (const permission of demoPermissions) {
+      await pool.query(
+        "insert into permissions (key, label, permission_group) values ($1, $2, $3) on conflict (key) do nothing",
+        [permission.key, permission.label, permission.group]
+      );
+    }
+  }
+
+  const memberCount = await pool.query<{ count: string }>("select count(*) from members");
+  if (Number(memberCount.rows[0]?.count ?? 0) === 0) {
+    for (const member of demoMembers) {
+      await pool.query(
+        `
+          insert into members (id, name, email, role, team, status, last_seen_at, permissions)
+          values ($1, $2, $3, $4, $5, $6, $7, $8)
+          on conflict (id) do nothing
+        `,
+        [member.id, member.name, member.email, member.role, member.team, member.status, member.lastSeenAt, member.permissions]
+      );
+    }
+  }
+
+  const teamCount = await pool.query<{ count: string }>("select count(*) from teams");
+  if (Number(teamCount.rows[0]?.count ?? 0) === 0) {
+    for (const team of demoTeams) {
+      await pool.query(
+        `
+          insert into teams (
+            id, name, parent_id, team_type, status, lead, member_count, server_count,
+            approval_sla, description, responsibilities
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          on conflict (id) do nothing
+        `,
+        [
+          team.id,
+          team.name,
+          team.parentId,
+          team.type,
+          team.status,
+          team.lead,
+          team.memberCount,
+          team.serverCount,
+          team.approvalSla,
+          team.description,
+          team.responsibilities
+        ]
+      );
+    }
+  }
+
+  const roleCount = await pool.query<{ count: string }>("select count(*) from roles");
+  if (Number(roleCount.rows[0]?.count ?? 0) === 0) {
+    for (const role of demoRoles) {
+      await pool.query(
+        `
+          insert into roles (id, name, scope, status, member_count, description, permissions)
+          values ($1, $2, $3, $4, $5, $6, $7)
+          on conflict (id) do nothing
+        `,
+        [role.id, role.name, role.scope, role.status, role.memberCount, role.description, role.permissions]
+      );
     }
   }
 }
@@ -651,6 +955,131 @@ export async function toggleAiModel(id: string): Promise<AiModelRecord | null> {
   }
 }
 
+export async function getMembers(): Promise<MemberRecord[]> {
+  const result = await pool.query(`
+    select id, name, email, role, team, status, last_seen_at, permissions
+    from members
+    order by created_at asc
+  `);
+  return result.rows.map(mapMember);
+}
+
+export async function toggleMember(id: string): Promise<MemberRecord | null> {
+  const result = await pool.query(
+    `
+      update members
+      set status = case when status = 'active' then 'disabled' else 'active' end,
+        updated_at = now()
+      where id = $1
+      returning id, name, email, role, team, status, last_seen_at, permissions
+    `,
+    [id]
+  );
+  return result.rows[0] ? mapMember(result.rows[0]) : null;
+}
+
+export async function updateMemberRole(id: string, role: string): Promise<MemberRecord | null> {
+  const result = await pool.query(
+    `
+      update members
+      set role = $2, updated_at = now()
+      where id = $1
+      returning id, name, email, role, team, status, last_seen_at, permissions
+    `,
+    [id, role]
+  );
+  return result.rows[0] ? mapMember(result.rows[0]) : null;
+}
+
+export async function getTeams(): Promise<TeamRecord[]> {
+  const [teamsResult, members] = await Promise.all([
+    pool.query(`
+      select id, name, parent_id, team_type, status, lead, member_count, server_count,
+        approval_sla, description, responsibilities
+      from teams
+      order by case when parent_id is null then 0 else 1 end, created_at asc
+    `),
+    getMembers()
+  ]);
+  return teamsResult.rows.map((row) => mapTeam(row, members.filter((member) => member.team === row.name)));
+}
+
+export async function toggleTeam(id: string): Promise<TeamRecord | null> {
+  const result = await pool.query(
+    `
+      update teams
+      set status = case when status = 'active' then 'review' else 'active' end,
+        updated_at = now()
+      where id = $1
+      returning id, name, parent_id, team_type, status, lead, member_count, server_count,
+        approval_sla, description, responsibilities
+    `,
+    [id]
+  );
+  if (!result.rows[0]) {
+    return null;
+  }
+  const members = (await getMembers()).filter((member) => member.team === result.rows[0].name);
+  return mapTeam(result.rows[0], members);
+}
+
+export async function getRoles(): Promise<RoleRecord[]> {
+  const result = await pool.query(`
+    select id, name, scope, status, member_count, description, permissions
+    from roles
+    order by created_at asc
+  `);
+  return result.rows.map(mapRole);
+}
+
+export async function getPermissions(): Promise<PermissionRecord[]> {
+  const result = await pool.query(`
+    select key, label, permission_group
+    from permissions
+    order by key asc
+  `);
+  return result.rows.map((row) => ({
+    key: String(row.key),
+    label: String(row.label),
+    group: String(row.permission_group)
+  }));
+}
+
+export async function toggleRole(id: string): Promise<RoleRecord | null> {
+  const result = await pool.query(
+    `
+      update roles
+      set status = case when status = 'enabled' then 'disabled' else 'enabled' end,
+        updated_at = now()
+      where id = $1
+      returning id, name, scope, status, member_count, description, permissions
+    `,
+    [id]
+  );
+  return result.rows[0] ? mapRole(result.rows[0]) : null;
+}
+
+export async function toggleRolePermission(id: string, permission: string): Promise<RoleRecord | null> {
+  const role = await pool.query("select permissions from roles where id = $1", [id]);
+  if (!role.rows[0]) {
+    return null;
+  }
+  const current: string[] = Array.isArray(role.rows[0].permissions) ? role.rows[0].permissions.map(String) : [];
+  const nextPermissions = current.includes(permission)
+    ? current.filter((key) => key !== permission)
+    : [...current, permission];
+  const result = await pool.query(
+    `
+      update roles
+      set permissions = $2, updated_at = now()
+      where id = $1
+      returning id, name, scope, status, member_count, description, permissions
+    `,
+    [id, nextPermissions]
+  );
+  return result.rows[0] ? mapRole(result.rows[0]) : null;
+}
+
 function mapServer(row: Record<string, unknown>): ServerRecord {
   return {
     id: String(row.id),
@@ -686,5 +1115,47 @@ function mapAiModel(row: Record<string, unknown>): AiModelRecord {
     endpoint: String(row.endpoint),
     apiKeyEnvName: envName,
     apiKeyConfigured: Boolean((envName && process.env[envName]) || row.api_key_secret)
+  };
+}
+
+function mapMember(row: Record<string, unknown>): MemberRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    email: String(row.email),
+    role: String(row.role),
+    team: String(row.team),
+    status: String(row.status),
+    lastSeenAt: row.last_seen_at ? new Date(String(row.last_seen_at)).toISOString() : null,
+    permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : []
+  };
+}
+
+function mapTeam(row: Record<string, unknown>, members: MemberRecord[]): TeamRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    parentId: row.parent_id ? String(row.parent_id) : null,
+    type: String(row.team_type),
+    status: String(row.status),
+    lead: String(row.lead),
+    memberCount: Number(row.member_count),
+    serverCount: Number(row.server_count),
+    approvalSla: String(row.approval_sla),
+    description: String(row.description),
+    responsibilities: Array.isArray(row.responsibilities) ? row.responsibilities.map(String) : [],
+    members
+  };
+}
+
+function mapRole(row: Record<string, unknown>): RoleRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    scope: String(row.scope),
+    status: String(row.status),
+    memberCount: Number(row.member_count),
+    description: String(row.description),
+    permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : []
   };
 }

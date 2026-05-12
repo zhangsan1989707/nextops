@@ -54,7 +54,7 @@ docs/
 
 ## Data Persistence
 
-- PostgreSQL stores servers, alerts, scripts and AI model configuration.
+- PostgreSQL stores servers, alerts, scripts, AI model configuration, members, teams, roles and permissions.
 - API startup runs lightweight schema migrations through the `schema_migrations` table.
 - Demo seed data is inserted only when the related tables are empty.
 - Model API keys are never returned by API responses. Deepseek uses `DEEPSEEK_API_KEY` from `.env`; user-added model keys are persisted for the local demo and should be encrypted before production use.

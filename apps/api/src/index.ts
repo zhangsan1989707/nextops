@@ -8,13 +8,22 @@ import {
   getAiModels,
   getAlert,
   getAlerts,
+  getMembers,
+  getPermissions,
+  getRoles,
   getScript,
   getScripts,
   getServer,
   getServers,
+  getTeams,
   initializeDatabase,
   setDefaultAiModel,
   toggleAiModel,
+  toggleMember,
+  toggleRole,
+  toggleRolePermission,
+  toggleTeam,
+  updateMemberRole,
   type AiModelInput,
   type ServerRecord
 } from "./db.js";
@@ -170,146 +179,6 @@ let approvalTickets = [
     steps: ["查询 pg_stat_activity", "采集等待事件", "关联慢查询日志", "生成修复建议"],
     relatedResource: "scr-003"
   }
-];
-
-let members = [
-  {
-    id: "mem-001",
-    name: "Leo Hang",
-    email: "leo@example.com",
-    role: "Owner",
-    team: "平台工程",
-    status: "active",
-    lastSeenAt: "2026-05-12T07:58:00.000Z",
-    permissions: ["全局配置", "模型管理", "审批处理", "服务器纳管"]
-  },
-  {
-    id: "mem-002",
-    name: "SRE Oncall",
-    email: "sre@example.com",
-    role: "SRE",
-    team: "稳定性团队",
-    status: "active",
-    lastSeenAt: "2026-05-12T06:40:00.000Z",
-    permissions: ["告警处理", "脚本执行", "AI 诊断"]
-  },
-  {
-    id: "mem-003",
-    name: "DevOps Reviewer",
-    email: "devops@example.com",
-    role: "Reviewer",
-    team: "DevOps Lab",
-    status: "pending",
-    lastSeenAt: null,
-    permissions: ["工单审核", "部署确认"]
-  }
-];
-
-let teams = [
-  {
-    id: "team-platform",
-    name: "平台工程",
-    parentId: null,
-    type: "root",
-    status: "active",
-    lead: "Leo Hang",
-    memberCount: 6,
-    serverCount: 12,
-    approvalSla: "30m",
-    description: "负责 NextOps 平台、模型网关、自动化编排和核心配置。",
-    responsibilities: ["平台配置", "模型管理", "权限治理", "自动化编排"]
-  },
-  {
-    id: "team-sre",
-    name: "稳定性团队",
-    parentId: "team-platform",
-    type: "sre",
-    status: "active",
-    lead: "SRE Oncall",
-    memberCount: 8,
-    serverCount: 27,
-    approvalSla: "15m",
-    description: "负责生产环境巡检、告警处理、排障与容量趋势分析。",
-    responsibilities: ["告警处理", "巡检", "故障诊断", "容量治理"]
-  },
-  {
-    id: "team-devops",
-    name: "DevOps Lab",
-    parentId: "team-platform",
-    type: "devops",
-    status: "active",
-    lead: "DevOps Reviewer",
-    memberCount: 5,
-    serverCount: 8,
-    approvalSla: "45m",
-    description: "负责 CI/CD 集成、脚本模板、包分发和发布审批。",
-    responsibilities: ["发布审批", "脚本模板", "包管理", "流水线集成"]
-  },
-  {
-    id: "team-cloud",
-    name: "私有云运维",
-    parentId: "team-platform",
-    type: "cloud",
-    status: "review",
-    lead: "Cloud Admin",
-    memberCount: 3,
-    serverCount: 15,
-    approvalSla: "60m",
-    description: "负责私有云接入、云原生资源和多协议插件驱动。",
-    responsibilities: ["私有云接入", "Kubernetes", "插件驱动", "云资源同步"]
-  }
-];
-
-let roles = [
-  {
-    id: "role-owner",
-    name: "Owner",
-    scope: "global",
-    status: "enabled",
-    memberCount: 1,
-    description: "拥有平台全部管理能力，适合平台负责人和超级管理员。",
-    permissions: ["dashboard:read", "server:manage", "script:execute", "approval:review", "model:manage", "member:manage", "role:manage"]
-  },
-  {
-    id: "role-sre",
-    name: "SRE",
-    scope: "tenant",
-    status: "enabled",
-    memberCount: 1,
-    description: "负责巡检、告警、诊断和常规自动化执行。",
-    permissions: ["dashboard:read", "server:manage", "script:execute", "approval:request"]
-  },
-  {
-    id: "role-reviewer",
-    name: "Reviewer",
-    scope: "tenant",
-    status: "enabled",
-    memberCount: 1,
-    description: "负责高风险脚本、包分发、生产变更的审批。",
-    permissions: ["dashboard:read", "approval:review", "script:read"]
-  },
-  {
-    id: "role-developer",
-    name: "Developer",
-    scope: "team",
-    status: "disabled",
-    memberCount: 0,
-    description: "允许查看资产、触发低风险脚本和发起部署申请。",
-    permissions: ["dashboard:read", "server:read", "script:read", "approval:request"]
-  }
-];
-
-const permissionCatalog = [
-  { key: "dashboard:read", label: "查看仪表盘", group: "核心业务" },
-  { key: "server:read", label: "查看服务器", group: "资产" },
-  { key: "server:manage", label: "管理服务器", group: "资产" },
-  { key: "script:read", label: "查看脚本", group: "自动化" },
-  { key: "script:execute", label: "执行脚本", group: "自动化" },
-  { key: "approval:request", label: "发起审批", group: "审批" },
-  { key: "approval:review", label: "审核工单", group: "审批" },
-  { key: "model:manage", label: "管理模型", group: "设置" },
-  { key: "member:manage", label: "管理成员", group: "设置" },
-  { key: "role:manage", label: "管理角色", group: "设置" }
 ];
 
 app.get("/health", (_req, res) => {
@@ -950,127 +819,135 @@ app.post("/api/models/:id/test", async (req, res, next) => {
   }
 });
 
-app.get("/api/members", (_req, res) => {
-  res.json({
-    items: members,
-    totals: {
-      members: members.length,
-      active: members.filter((member) => member.status === "active").length,
-      pending: members.filter((member) => member.status === "pending").length,
-      admins: members.filter((member) => member.role === "Owner").length
+app.get("/api/members", async (_req, res, next) => {
+  try {
+    const nextMembers = await getMembers();
+    res.json({
+      items: nextMembers,
+      totals: {
+        members: nextMembers.length,
+        active: nextMembers.filter((member) => member.status === "active").length,
+        pending: nextMembers.filter((member) => member.status === "pending").length,
+        admins: nextMembers.filter((member) => member.role === "Owner").length
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/members/:id/toggle", async (req, res, next) => {
+  try {
+    const member = await toggleMember(req.params.id);
+    if (!member) {
+      res.status(404).json({ message: "Member not found" });
+      return;
     }
-  });
-});
-
-app.post("/api/members/:id/toggle", (req, res) => {
-  const member = members.find((item) => item.id === req.params.id);
-  if (!member) {
-    res.status(404).json({ message: "Member not found" });
-    return;
+    res.json(member);
+  } catch (error) {
+    next(error);
   }
-
-  const nextStatus = member.status === "active" ? "disabled" : "active";
-  members = members.map((item) => (item.id === member.id ? { ...item, status: nextStatus } : item));
-  res.json(members.find((item) => item.id === member.id));
 });
 
-app.post("/api/members/:id/role", (req, res) => {
+app.post("/api/members/:id/role", async (req, res, next) => {
+  try {
   const { role } = req.body as { role?: string };
-  const member = members.find((item) => item.id === req.params.id);
-  if (!member) {
-    res.status(404).json({ message: "Member not found" });
-    return;
-  }
   if (!role || !["Owner", "SRE", "Reviewer", "Developer"].includes(role)) {
     res.status(400).json({ message: "Invalid role" });
     return;
   }
 
-  members = members.map((item) => (item.id === member.id ? { ...item, role } : item));
-  res.json(members.find((item) => item.id === member.id));
-});
-
-app.get("/api/teams/summary", (_req, res) => {
-  res.json({
-    items: teams.map((team) => ({
-      ...team,
-      members: members.filter((member) => member.team === team.name)
-    })),
-    totals: {
-      teams: teams.length,
-      active: teams.filter((team) => team.status === "active").length,
-      members: teams.reduce((total, team) => total + team.memberCount, 0),
-      servers: teams.reduce((total, team) => total + team.serverCount, 0)
+    const member = await updateMemberRole(req.params.id, role);
+    if (!member) {
+      res.status(404).json({ message: "Member not found" });
+      return;
     }
-  });
-});
-
-app.post("/api/teams/:id/toggle", (req, res) => {
-  const team = teams.find((item) => item.id === req.params.id);
-  if (!team) {
-    res.status(404).json({ message: "Team not found" });
-    return;
+    res.json(member);
+  } catch (error) {
+    next(error);
   }
-
-  const nextStatus = team.status === "active" ? "review" : "active";
-  teams = teams.map((item) => (item.id === team.id ? { ...item, status: nextStatus } : item));
-  const nextTeam = teams.find((item) => item.id === team.id);
-  res.json({
-    ...nextTeam,
-    members: members.filter((member) => member.team === nextTeam?.name)
-  });
 });
 
-app.get("/api/roles/summary", (_req, res) => {
-  res.json({
-    items: roles,
-    permissions: permissionCatalog,
-    totals: {
-      roles: roles.length,
-      enabled: roles.filter((role) => role.status === "enabled").length,
-      permissions: permissionCatalog.length,
-      assignments: roles.reduce((total, role) => total + role.memberCount, 0)
+app.get("/api/teams/summary", async (_req, res, next) => {
+  try {
+    const nextTeams = await getTeams();
+    res.json({
+      items: nextTeams,
+      totals: {
+        teams: nextTeams.length,
+        active: nextTeams.filter((team) => team.status === "active").length,
+        members: nextTeams.reduce((total, team) => total + team.memberCount, 0),
+        servers: nextTeams.reduce((total, team) => total + team.serverCount, 0)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/teams/:id/toggle", async (req, res, next) => {
+  try {
+    const team = await toggleTeam(req.params.id);
+    if (!team) {
+      res.status(404).json({ message: "Team not found" });
+      return;
     }
-  });
-});
-
-app.post("/api/roles/:id/toggle", (req, res) => {
-  const role = roles.find((item) => item.id === req.params.id);
-  if (!role) {
-    res.status(404).json({ message: "Role not found" });
-    return;
+    res.json(team);
+  } catch (error) {
+    next(error);
   }
-
-  const nextStatus = role.status === "enabled" ? "disabled" : "enabled";
-  roles = roles.map((item) => (item.id === role.id ? { ...item, status: nextStatus } : item));
-  res.json(roles.find((item) => item.id === role.id));
 });
 
-app.post("/api/roles/:id/permission", (req, res) => {
+app.get("/api/roles/summary", async (_req, res, next) => {
+  try {
+    const [nextRoles, permissions] = await Promise.all([getRoles(), getPermissions()]);
+    res.json({
+      items: nextRoles,
+      permissions,
+      totals: {
+        roles: nextRoles.length,
+        enabled: nextRoles.filter((role) => role.status === "enabled").length,
+        permissions: permissions.length,
+        assignments: nextRoles.reduce((total, role) => total + role.memberCount, 0)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/roles/:id/toggle", async (req, res, next) => {
+  try {
+    const role = await toggleRole(req.params.id);
+    if (!role) {
+      res.status(404).json({ message: "Role not found" });
+      return;
+    }
+    res.json(role);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/roles/:id/permission", async (req, res, next) => {
+  try {
   const { permission } = req.body as { permission?: string };
-  const role = roles.find((item) => item.id === req.params.id);
-  if (!role) {
-    res.status(404).json({ message: "Role not found" });
-    return;
-  }
   const permissionKey = String(permission ?? "");
-  if (!permissionCatalog.some((item) => item.key === permissionKey)) {
+    const permissions = await getPermissions();
+  if (!permissions.some((item) => item.key === permissionKey)) {
     res.status(400).json({ message: "Invalid permission" });
     return;
   }
 
-  const hasPermission = role.permissions.includes(permissionKey);
-  roles = roles.map((item) =>
-    item.id === role.id
-      ? {
-          ...item,
-          permissions: hasPermission
-            ? item.permissions.filter((key) => key !== permissionKey)
-            : [...item.permissions, permissionKey]
-        }
-      : item
-  );
-  res.json(roles.find((item) => item.id === role.id));
+    const role = await toggleRolePermission(req.params.id, permissionKey);
+    if (!role) {
+      res.status(404).json({ message: "Role not found" });
+      return;
+    }
+    res.json(role);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
