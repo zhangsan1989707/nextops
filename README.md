@@ -13,7 +13,7 @@ Requirements:
 Run with Docker Compose:
 
 ```bash
-npm run docker:up
+npm run docker:deploy
 ```
 
 Open:
@@ -39,5 +39,26 @@ docs/
 - Dashboard.
 - ChatOps mock control panel with Slash command hints.
 - Server list and server health detail.
-- Alert, script, tenant, approval, model, member and permission placeholders.
+- Alert center, script center, slash commands, package management and file management.
+- Tenant dashboard, approval review, model management, member management, team structure and role permissions.
 - Docker Compose for web, API, PostgreSQL and Redis.
+- Jenkins pipeline for install, lint, build, Docker build, local deploy and smoke test.
+
+## CI/CD
+
+Jenkins can use the repository `Jenkinsfile` directly.
+
+Pipeline stages:
+
+- `Install`: `npm ci`
+- `Lint`: `npm run lint`
+- `Build`: `npm run build`
+- `Docker Build`: `docker compose -f deploy/docker-compose.yml build`
+- `Deploy Local Demo`: `npm run docker:deploy` on `main` or when `DEPLOY_LOCAL=true`
+- `Smoke Test`: `npm run smoke`
+
+Local smoke test:
+
+```bash
+npm run smoke
+```

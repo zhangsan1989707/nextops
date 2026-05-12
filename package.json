@@ -12,7 +12,8 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "docker:up": "docker compose -f deploy/docker-compose.yml up --build",
-    "docker:down": "docker compose -f deploy/docker-compose.yml down"
+    "docker:deploy": "docker compose -f deploy/docker-compose.yml up --build -d",
+    "docker:down": "docker compose -f deploy/docker-compose.yml down",
+    "smoke": "sh scripts/smoke-test.sh"
   }
 }
-
