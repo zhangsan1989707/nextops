@@ -59,7 +59,6 @@ CODEX_COMMAND=(
   exec
   --cd "$WORKSPACE"
   --sandbox danger-full-access
-  --ask-for-approval never
   --dangerously-bypass-approvals-and-sandbox
   --output-last-message "$LAST_MESSAGE"
   -
