@@ -269,6 +269,33 @@ type TeamSummary = {
   };
 };
 
+type PermissionItem = {
+  key: string;
+  label: string;
+  group: string;
+};
+
+type RoleItem = {
+  id: string;
+  name: string;
+  scope: string;
+  status: string;
+  memberCount: number;
+  description: string;
+  permissions: string[];
+};
+
+type RoleSummary = {
+  items: RoleItem[];
+  permissions: PermissionItem[];
+  totals: {
+    roles: number;
+    enabled: number;
+    permissions: number;
+    assignments: number;
+  };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -378,6 +405,7 @@ export function App() {
   const [modelSummary, setModelSummary] = useState<ModelSummary | null>(null);
   const [memberSummary, setMemberSummary] = useState<MemberSummary | null>(null);
   const [teamSummary, setTeamSummary] = useState<TeamSummary | null>(null);
+  const [roleSummary, setRoleSummary] = useState<RoleSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -406,7 +434,8 @@ export function App() {
       nextApprovalSummary,
       nextModelSummary,
       nextMemberSummary,
-      nextTeamSummary
+      nextTeamSummary,
+      nextRoleSummary
     ] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
@@ -419,7 +448,8 @@ export function App() {
       fetchJson<ApprovalSummary>("/api/approvals"),
       fetchJson<ModelSummary>("/api/models"),
       fetchJson<MemberSummary>("/api/members"),
-      fetchJson<TeamSummary>("/api/teams/summary")
+      fetchJson<TeamSummary>("/api/teams/summary"),
+      fetchJson<RoleSummary>("/api/roles/summary")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -433,6 +463,7 @@ export function App() {
     setModelSummary(nextModelSummary);
     setMemberSummary(nextMemberSummary);
     setTeamSummary(nextTeamSummary);
+    setRoleSummary(nextRoleSummary);
   }
 
   useEffect(() => {
@@ -451,6 +482,7 @@ export function App() {
         setModelSummary(null);
         setMemberSummary(null);
         setTeamSummary(null);
+        setRoleSummary(null);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -561,6 +593,7 @@ export function App() {
         {activePage === "models" && <Models summary={modelSummary} />}
         {activePage === "members" && <Members summary={memberSummary} />}
         {activePage === "teams" && <Teams summary={teamSummary} />}
+        {activePage === "roles" && <Roles summary={roleSummary} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -583,6 +616,7 @@ export function App() {
           activePage !== "models" &&
           activePage !== "members" &&
           activePage !== "teams" &&
+          activePage !== "roles" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -1962,6 +1996,150 @@ function Teams({ summary }: { summary: TeamSummary | null }) {
                   type="button"
                 >
                   <Settings size={16} /> {selectedTeam.status === "active" ? "进入评审" : "启用团队"}
+                </button>
+              </div>
+            </>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function Roles({ summary }: { summary: RoleSummary | null }) {
+  const [roles, setRoles] = useState<RoleItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextRoles = summary?.items ?? [];
+    setRoles(nextRoles);
+    setSelectedId((current) => current ?? nextRoles[0]?.id ?? null);
+  }, [summary]);
+
+  const selectedRole = roles.find((role) => role.id === selectedId) ?? roles[0];
+  const permissions = summary?.permissions ?? [];
+  const totals = {
+    roles: roles.length,
+    enabled: roles.filter((role) => role.status === "enabled").length,
+    permissions: permissions.length,
+    assignments: roles.reduce((total, role) => total + role.memberCount, 0)
+  };
+
+  async function toggleRole(roleId: string) {
+    setSubmittingId(roleId);
+    try {
+      const updated = await postJson<RoleItem>(`/api/roles/${roleId}/toggle`, {});
+      setRoles((current) => current.map((role) => (role.id === updated.id ? updated : role)));
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  async function togglePermission(roleId: string, permission: string) {
+    setSubmittingId(`${roleId}:${permission}`);
+    try {
+      const updated = await postJson<RoleItem>(`/api/roles/${roleId}/permission`, { permission });
+      setRoles((current) => current.map((role) => (role.id === updated.id ? updated : role)));
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  return (
+    <section className="roles-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><KeyRound size={20} /></div>
+          <span>角色数</span>
+          <strong>{summary ? totals.roles : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><CheckCircle2 size={20} /></div>
+          <span>已启用</span>
+          <strong>{summary ? totals.enabled : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><ShieldCheck size={20} /></div>
+          <span>权限点</span>
+          <strong>{summary ? totals.permissions : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Users size={20} /></div>
+          <span>成员绑定</span>
+          <strong>{summary ? totals.assignments : "--"}</strong>
+        </article>
+      </div>
+
+      <div className="roles-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">角色</p>
+              <h2>权限与角色</h2>
+            </div>
+          </div>
+          <div className="role-list">
+            {roles.map((role) => (
+              <button
+                className={selectedRole?.id === role.id ? "role-item active" : "role-item"}
+                key={role.id}
+                onClick={() => setSelectedId(role.id)}
+                type="button"
+              >
+                <span>
+                  <strong>{role.name}</strong>
+                  <small>{role.scope} · {role.memberCount} 人</small>
+                </span>
+                <em className={`state ${role.status}`}>{role.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel role-detail">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">权限矩阵</p>
+              <h2>{selectedRole?.name ?? "暂无角色"}</h2>
+            </div>
+            {selectedRole && <span className="status">{selectedRole.scope}</span>}
+          </div>
+
+          {selectedRole && (
+            <>
+              <p className="diagnosis-summary">{selectedRole.description}</p>
+              <dl className="config-list">
+                <div><dt>状态</dt><dd>{selectedRole.status}</dd></div>
+                <div><dt>成员绑定</dt><dd>{selectedRole.memberCount}</dd></div>
+                <div><dt>授权范围</dt><dd>{selectedRole.scope}</dd></div>
+                <div><dt>权限数量</dt><dd>{selectedRole.permissions.length}</dd></div>
+              </dl>
+              <div className="permission-grid">
+                {permissions.map((permission) => {
+                  const enabled = selectedRole.permissions.includes(permission.key);
+                  return (
+                    <button
+                      className={enabled ? "permission-item enabled" : "permission-item"}
+                      disabled={submittingId === `${selectedRole.id}:${permission.key}`}
+                      key={permission.key}
+                      onClick={() => togglePermission(selectedRole.id, permission.key)}
+                      type="button"
+                    >
+                      <span>{permission.label}</span>
+                      <small>{permission.group}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="detail-actions">
+                <button
+                  className="secondary-button"
+                  disabled={submittingId === selectedRole.id}
+                  onClick={() => toggleRole(selectedRole.id)}
+                  type="button"
+                >
+                  <Settings size={16} /> {selectedRole.status === "enabled" ? "停用角色" : "启用角色"}
                 </button>
               </div>
             </>

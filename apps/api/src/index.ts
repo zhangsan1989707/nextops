@@ -296,6 +296,58 @@ let teams = [
   }
 ];
 
+let roles = [
+  {
+    id: "role-owner",
+    name: "Owner",
+    scope: "global",
+    status: "enabled",
+    memberCount: 1,
+    description: "拥有平台全部管理能力，适合平台负责人和超级管理员。",
+    permissions: ["dashboard:read", "server:manage", "script:execute", "approval:review", "model:manage", "member:manage", "role:manage"]
+  },
+  {
+    id: "role-sre",
+    name: "SRE",
+    scope: "tenant",
+    status: "enabled",
+    memberCount: 1,
+    description: "负责巡检、告警、诊断和常规自动化执行。",
+    permissions: ["dashboard:read", "server:manage", "script:execute", "approval:request"]
+  },
+  {
+    id: "role-reviewer",
+    name: "Reviewer",
+    scope: "tenant",
+    status: "enabled",
+    memberCount: 1,
+    description: "负责高风险脚本、包分发、生产变更的审批。",
+    permissions: ["dashboard:read", "approval:review", "script:read"]
+  },
+  {
+    id: "role-developer",
+    name: "Developer",
+    scope: "team",
+    status: "disabled",
+    memberCount: 0,
+    description: "允许查看资产、触发低风险脚本和发起部署申请。",
+    permissions: ["dashboard:read", "server:read", "script:read", "approval:request"]
+  }
+];
+
+const permissionCatalog = [
+  { key: "dashboard:read", label: "查看仪表盘", group: "核心业务" },
+  { key: "server:read", label: "查看服务器", group: "资产" },
+  { key: "server:manage", label: "管理服务器", group: "资产" },
+  { key: "script:read", label: "查看脚本", group: "自动化" },
+  { key: "script:execute", label: "执行脚本", group: "自动化" },
+  { key: "approval:request", label: "发起审批", group: "审批" },
+  { key: "approval:review", label: "审核工单", group: "审批" },
+  { key: "model:manage", label: "管理模型", group: "设置" },
+  { key: "member:manage", label: "管理成员", group: "设置" },
+  { key: "role:manage", label: "管理角色", group: "设置" }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -921,6 +973,58 @@ app.post("/api/teams/:id/toggle", (req, res) => {
     ...nextTeam,
     members: members.filter((member) => member.team === nextTeam?.name)
   });
+});
+
+app.get("/api/roles/summary", (_req, res) => {
+  res.json({
+    items: roles,
+    permissions: permissionCatalog,
+    totals: {
+      roles: roles.length,
+      enabled: roles.filter((role) => role.status === "enabled").length,
+      permissions: permissionCatalog.length,
+      assignments: roles.reduce((total, role) => total + role.memberCount, 0)
+    }
+  });
+});
+
+app.post("/api/roles/:id/toggle", (req, res) => {
+  const role = roles.find((item) => item.id === req.params.id);
+  if (!role) {
+    res.status(404).json({ message: "Role not found" });
+    return;
+  }
+
+  const nextStatus = role.status === "enabled" ? "disabled" : "enabled";
+  roles = roles.map((item) => (item.id === role.id ? { ...item, status: nextStatus } : item));
+  res.json(roles.find((item) => item.id === role.id));
+});
+
+app.post("/api/roles/:id/permission", (req, res) => {
+  const { permission } = req.body as { permission?: string };
+  const role = roles.find((item) => item.id === req.params.id);
+  if (!role) {
+    res.status(404).json({ message: "Role not found" });
+    return;
+  }
+  const permissionKey = String(permission ?? "");
+  if (!permissionCatalog.some((item) => item.key === permissionKey)) {
+    res.status(400).json({ message: "Invalid permission" });
+    return;
+  }
+
+  const hasPermission = role.permissions.includes(permissionKey);
+  roles = roles.map((item) =>
+    item.id === role.id
+      ? {
+          ...item,
+          permissions: hasPermission
+            ? item.permissions.filter((key) => key !== permissionKey)
+            : [...item.permissions, permissionKey]
+        }
+      : item
+  );
+  res.json(roles.find((item) => item.id === role.id));
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
