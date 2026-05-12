@@ -2,7 +2,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import {
+  createAiModel,
   createServer,
+  getAiModel,
+  getAiModels,
   getAlert,
   getAlerts,
   getScript,
@@ -10,6 +13,9 @@ import {
   getServer,
   getServers,
   initializeDatabase,
+  setDefaultAiModel,
+  toggleAiModel,
+  type AiModelInput,
   type ServerRecord
 } from "./db.js";
 
@@ -17,21 +23,6 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
-
-type AiModel = {
-  id: string;
-  name: string;
-  provider: string;
-  type: string;
-  status: string;
-  isDefault: boolean;
-  contextWindow: string;
-  latencyMs: number;
-  costLevel: string;
-  capabilities: string[];
-  endpoint: string;
-  apiKeyEnvName?: string;
-};
 
 app.use(cors());
 app.use(express.json());
@@ -178,64 +169,6 @@ let approvalTickets = [
     summary: "对 PostgreSQL 活跃会话、等待事件和慢查询进行只读诊断。",
     steps: ["查询 pg_stat_activity", "采集等待事件", "关联慢查询日志", "生成修复建议"],
     relatedResource: "scr-003"
-  }
-];
-
-const modelSecrets = new Map<string, string>();
-
-let aiModels: AiModel[] = [
-  {
-    id: "deepseek-v4-flash",
-    name: "Deepseek",
-    provider: "Deepseek",
-    type: "chat",
-    status: "enabled",
-    isDefault: true,
-    contextWindow: "64k",
-    latencyMs: 520,
-    costLevel: "low",
-    capabilities: ["ChatOps", "日志诊断", "修复方案生成", "低延迟推理"],
-    endpoint: "https://api.deepseek.com/v1",
-    apiKeyEnvName: "DEEPSEEK_API_KEY"
-  },
-  {
-    id: "model-ops-gpt-4.1",
-    name: "OpsGPT-4.1",
-    provider: "OpenAI Compatible",
-    type: "chat",
-    status: "enabled",
-    isDefault: false,
-    contextWindow: "128k",
-    latencyMs: 820,
-    costLevel: "medium",
-    capabilities: ["ChatOps", "日志诊断", "修复方案生成", "Slash 指令解析"],
-    endpoint: "https://api.openai.example/v1"
-  },
-  {
-    id: "model-local-qwen",
-    name: "Qwen2.5-Ops-Local",
-    provider: "Private LLM Gateway",
-    type: "chat",
-    status: "enabled",
-    isDefault: false,
-    contextWindow: "32k",
-    latencyMs: 460,
-    costLevel: "low",
-    capabilities: ["内网知识问答", "脚本生成", "告警归因"],
-    endpoint: "http://llm-gateway.local/v1"
-  },
-  {
-    id: "model-embedding-bge",
-    name: "BGE-M3 Embedding",
-    provider: "Vector Service",
-    type: "embedding",
-    status: "disabled",
-    isDefault: false,
-    contextWindow: "8k",
-    latencyMs: 120,
-    costLevel: "low",
-    capabilities: ["日志向量化", "知识库检索", "相似事件召回"],
-    endpoint: "http://vector.local/embedding"
   }
 ];
 
@@ -880,19 +813,25 @@ app.post("/api/approvals/:id/action", (req, res) => {
   res.json(nextTicket);
 });
 
-app.get("/api/models", (_req, res) => {
-  res.json({
-    items: aiModels.map(toPublicModel),
-    totals: {
-      models: aiModels.length,
-      enabled: aiModels.filter((model) => model.status === "enabled").length,
-      chat: aiModels.filter((model) => model.type === "chat").length,
-      embedding: aiModels.filter((model) => model.type === "embedding").length
-    }
-  });
+app.get("/api/models", async (_req, res, next) => {
+  try {
+    const models = await getAiModels();
+    res.json({
+      items: models,
+      totals: {
+        models: models.length,
+        enabled: models.filter((model) => model.status === "enabled").length,
+        chat: models.filter((model) => model.type === "chat").length,
+        embedding: models.filter((model) => model.type === "embedding").length
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.post("/api/models", (req, res) => {
+app.post("/api/models", async (req, res, next) => {
+  try {
   const body = req.body as {
     id?: string;
     name?: string;
@@ -915,12 +854,12 @@ app.post("/api/models", (req, res) => {
     res.status(400).json({ message: "id, name and endpoint are required" });
     return;
   }
-  if (aiModels.some((model) => model.id === id)) {
+  if (await getAiModel(id)) {
     res.status(409).json({ message: "Model id already exists" });
     return;
   }
 
-  const nextModel: AiModel = {
+  const nextModel: AiModelInput = {
     id,
     name,
     provider,
@@ -938,66 +877,54 @@ app.post("/api/models", (req, res) => {
 
   const apiKey = String(body.apiKey ?? "").trim();
   if (apiKey) {
-    modelSecrets.set(id, apiKey);
+    nextModel.apiKeySecret = apiKey;
   }
 
-  aiModels = body.setDefault
-    ? [...aiModels.map((model) => ({ ...model, isDefault: false })), nextModel]
-    : [...aiModels, nextModel];
-  res.status(201).json(toPublicModel(nextModel));
+  res.status(201).json(await createAiModel(nextModel));
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.post("/api/models/:id/default", (req, res) => {
-  const model = aiModels.find((item) => item.id === req.params.id);
-  if (!model) {
-    res.status(404).json({ message: "Model not found" });
-    return;
-  }
-
-  if (model.status !== "enabled") {
-    res.status(400).json({ message: "Only enabled models can be default" });
-    return;
-  }
-
-  aiModels = aiModels.map((item) => ({ ...item, isDefault: item.id === model.id }));
-  res.json(toPublicModel(aiModels.find((item) => item.id === model.id)));
-});
-
-app.post("/api/models/:id/toggle", (req, res) => {
-  const model = aiModels.find((item) => item.id === req.params.id);
-  if (!model) {
-    res.status(404).json({ message: "Model not found" });
-    return;
-  }
-
-  const nextStatus = model.status === "enabled" ? "disabled" : "enabled";
-  aiModels = aiModels.map((item) => {
-    if (item.id !== model.id) {
-      return item;
+app.post("/api/models/:id/default", async (req, res, next) => {
+  try {
+    const model = await setDefaultAiModel(req.params.id);
+    if (!model) {
+      res.status(404).json({ message: "Model not found" });
+      return;
     }
-    return {
-      ...item,
-      status: nextStatus,
-      isDefault: nextStatus === "disabled" ? false : item.isDefault
-    };
-  });
-
-  if (!aiModels.some((item) => item.isDefault) && aiModels.some((item) => item.status === "enabled")) {
-    const firstEnabled = aiModels.find((item) => item.status === "enabled");
-    aiModels = aiModels.map((item) => ({ ...item, isDefault: item.id === firstEnabled?.id }));
+    res.json(model);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Only enabled models can be default") {
+      res.status(400).json({ message: error.message });
+      return;
+    }
+    next(error);
   }
-
-  res.json(toPublicModel(aiModels.find((item) => item.id === model.id)));
 });
 
-app.post("/api/models/:id/test", (req, res) => {
-  const model = aiModels.find((item) => item.id === req.params.id);
-  if (!model) {
-    res.status(404).json({ message: "Model not found" });
-    return;
+app.post("/api/models/:id/toggle", async (req, res, next) => {
+  try {
+    const model = await toggleAiModel(req.params.id);
+    if (!model) {
+      res.status(404).json({ message: "Model not found" });
+      return;
+    }
+    res.json(model);
+  } catch (error) {
+    next(error);
   }
+});
 
-  const keyConfigured = Boolean((model.apiKeyEnvName && process.env[model.apiKeyEnvName]) || modelSecrets.has(model.id));
+app.post("/api/models/:id/test", async (req, res, next) => {
+  try {
+  const model = await getAiModel(req.params.id);
+    if (!model) {
+      res.status(404).json({ message: "Model not found" });
+      return;
+    }
+
+  const keyConfigured = model.apiKeyConfigured;
   const isLocal = model.provider.toLowerCase().includes("local") || model.endpoint.includes("localhost");
   const warnings = [
     !keyConfigured && !isLocal ? "未配置 API Key，远程模型调用会失败。" : "",
@@ -1018,6 +945,9 @@ app.post("/api/models/:id/test", (req, res) => {
     ],
     warnings
   });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/members", (_req, res) => {
@@ -1147,16 +1077,6 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   console.error(error);
   res.status(500).json({ message: "Internal server error" });
 });
-
-function toPublicModel(model: AiModel | undefined) {
-  if (!model) {
-    return model;
-  }
-  return {
-    ...model,
-    apiKeyConfigured: Boolean((model.apiKeyEnvName && process.env[model.apiKeyEnvName]) || modelSecrets.has(model.id))
-  };
-}
 
 function parseTags(value: unknown): string[] {
   if (Array.isArray(value)) {

@@ -52,6 +52,13 @@ docs/
 - Docker Compose for web, API, PostgreSQL and Redis.
 - Jenkins pipeline for install, lint, build, Docker build, local deploy and smoke test.
 
+## Data Persistence
+
+- PostgreSQL stores servers, alerts, scripts and AI model configuration.
+- API startup runs lightweight schema migrations through the `schema_migrations` table.
+- Demo seed data is inserted only when the related tables are empty.
+- Model API keys are never returned by API responses. Deepseek uses `DEEPSEEK_API_KEY` from `.env`; user-added model keys are persisted for the local demo and should be encrypted before production use.
+
 ## CI/CD
 
 Jenkins can use the repository `Jenkinsfile` directly.

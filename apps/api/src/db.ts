@@ -38,6 +38,38 @@ export type ScriptRecord = {
   successRate: number;
 };
 
+export type AiModelRecord = {
+  id: string;
+  name: string;
+  provider: string;
+  type: string;
+  status: string;
+  isDefault: boolean;
+  contextWindow: string;
+  latencyMs: number;
+  costLevel: string;
+  capabilities: string[];
+  endpoint: string;
+  apiKeyEnvName: string | null;
+  apiKeyConfigured: boolean;
+};
+
+export type AiModelInput = {
+  id: string;
+  name: string;
+  provider: string;
+  type: string;
+  status: string;
+  isDefault: boolean;
+  contextWindow: string;
+  latencyMs: number;
+  costLevel: string;
+  capabilities: string[];
+  endpoint: string;
+  apiKeyEnvName?: string | null;
+  apiKeySecret?: string | null;
+};
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL ?? "postgres://nextops:nextops@localhost:5432/nextops"
 });
@@ -141,46 +173,135 @@ const demoScripts: ScriptRecord[] = [
   }
 ];
 
+const demoModels: AiModelInput[] = [
+  {
+    id: "deepseek-v4-flash",
+    name: "Deepseek",
+    provider: "Deepseek",
+    type: "chat",
+    status: "enabled",
+    isDefault: true,
+    contextWindow: "64k",
+    latencyMs: 520,
+    costLevel: "low",
+    capabilities: ["ChatOps", "日志诊断", "修复方案生成", "低延迟推理"],
+    endpoint: "https://api.deepseek.com/v1",
+    apiKeyEnvName: "DEEPSEEK_API_KEY"
+  },
+  {
+    id: "model-ops-gpt-4.1",
+    name: "OpsGPT-4.1",
+    provider: "OpenAI Compatible",
+    type: "chat",
+    status: "enabled",
+    isDefault: false,
+    contextWindow: "128k",
+    latencyMs: 820,
+    costLevel: "medium",
+    capabilities: ["ChatOps", "日志诊断", "修复方案生成", "Slash 指令解析"],
+    endpoint: "https://api.openai.example/v1"
+  },
+  {
+    id: "model-local-qwen",
+    name: "Qwen2.5-Ops-Local",
+    provider: "Private LLM Gateway",
+    type: "chat",
+    status: "enabled",
+    isDefault: false,
+    contextWindow: "32k",
+    latencyMs: 460,
+    costLevel: "low",
+    capabilities: ["内网知识问答", "脚本生成", "告警归因"],
+    endpoint: "http://llm-gateway.local/v1"
+  },
+  {
+    id: "model-embedding-bge",
+    name: "BGE-M3 Embedding",
+    provider: "Vector Service",
+    type: "embedding",
+    status: "disabled",
+    isDefault: false,
+    contextWindow: "8k",
+    latencyMs: 120,
+    costLevel: "low",
+    capabilities: ["日志向量化", "知识库检索", "相似事件召回"],
+    endpoint: "http://vector.local/embedding"
+  }
+];
+
+const migrations = [
+  {
+    id: "0001_core_assets",
+    sql: `
+      create table if not exists servers (
+        id text primary key,
+        ip text not null,
+        port integer not null default 22,
+        hostname text not null,
+        environment text not null,
+        tenant text not null default 'default',
+        status text not null,
+        agent_status text not null,
+        os text not null,
+        cpu_usage integer not null default 0,
+        memory_usage integer not null default 0,
+        disk_usage integer not null default 0,
+        load_avg numeric not null default 0,
+        tags text[] not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists alerts (
+        id text primary key,
+        title text not null,
+        severity text not null,
+        status text not null,
+        source text not null,
+        server_id text not null references servers(id) on delete cascade,
+        triggered_at timestamptz not null
+      );
+
+      create table if not exists scripts (
+        id text primary key,
+        name text not null,
+        type text not null,
+        risk_level text not null,
+        version text not null,
+        success_rate integer not null default 0
+      );
+    `
+  },
+  {
+    id: "0002_ai_models",
+    sql: `
+      create table if not exists ai_models (
+        id text primary key,
+        name text not null,
+        provider text not null,
+        model_type text not null,
+        status text not null,
+        is_default boolean not null default false,
+        context_window text not null,
+        latency_ms integer not null default 0,
+        cost_level text not null,
+        capabilities text[] not null default '{}',
+        endpoint text not null,
+        api_key_env_name text,
+        api_key_secret text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create unique index if not exists ai_models_single_default
+        on ai_models (is_default)
+        where is_default;
+    `
+  }
+];
+
 export async function initializeDatabase() {
-  await pool.query(`
-    create table if not exists servers (
-      id text primary key,
-      ip text not null,
-      port integer not null default 22,
-      hostname text not null,
-      environment text not null,
-      tenant text not null default 'default',
-      status text not null,
-      agent_status text not null,
-      os text not null,
-      cpu_usage integer not null default 0,
-      memory_usage integer not null default 0,
-      disk_usage integer not null default 0,
-      load_avg numeric not null default 0,
-      tags text[] not null default '{}',
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    );
-
-    create table if not exists alerts (
-      id text primary key,
-      title text not null,
-      severity text not null,
-      status text not null,
-      source text not null,
-      server_id text not null references servers(id) on delete cascade,
-      triggered_at timestamptz not null
-    );
-
-    create table if not exists scripts (
-      id text primary key,
-      name text not null,
-      type text not null,
-      risk_level text not null,
-      version text not null,
-      success_rate integer not null default 0
-    );
-  `);
+  await runMigrations();
 
   const serverCount = await pool.query<{ count: string }>("select count(*) from servers");
   if (Number(serverCount.rows[0]?.count ?? 0) === 0) {
@@ -214,6 +335,37 @@ export async function initializeDatabase() {
         `,
         [script.id, script.name, script.type, script.riskLevel, script.version, script.successRate]
       );
+    }
+  }
+
+  const modelCount = await pool.query<{ count: string }>("select count(*) from ai_models");
+  if (Number(modelCount.rows[0]?.count ?? 0) === 0) {
+    for (const model of demoModels) {
+      await createAiModel(model);
+    }
+  }
+}
+
+async function runMigrations() {
+  await pool.query(`
+    create table if not exists schema_migrations (
+      id text primary key,
+      applied_at timestamptz not null default now()
+    );
+  `);
+
+  for (const migration of migrations) {
+    const applied = await pool.query("select id from schema_migrations where id = $1", [migration.id]);
+    if (applied.rowCount === 0) {
+      await pool.query("begin");
+      try {
+        await pool.query(migration.sql);
+        await pool.query("insert into schema_migrations (id) values ($1)", [migration.id]);
+        await pool.query("commit");
+      } catch (error) {
+        await pool.query("rollback");
+        throw error;
+      }
     }
   }
 }
@@ -352,6 +504,153 @@ export async function getScript(id: string): Promise<ScriptRecord | null> {
   };
 }
 
+export async function getAiModels(): Promise<AiModelRecord[]> {
+  const result = await pool.query(`
+    select id, name, provider, model_type, status, is_default, context_window,
+      latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+    from ai_models
+    order by is_default desc, created_at asc
+  `);
+  return result.rows.map(mapAiModel);
+}
+
+export async function getAiModel(id: string): Promise<AiModelRecord | null> {
+  const result = await pool.query(
+    `
+      select id, name, provider, model_type, status, is_default, context_window,
+        latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+      from ai_models
+      where id = $1
+    `,
+    [id]
+  );
+  return result.rows[0] ? mapAiModel(result.rows[0]) : null;
+}
+
+export async function createAiModel(input: AiModelInput): Promise<AiModelRecord> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    if (input.isDefault) {
+      await client.query("update ai_models set is_default = false, updated_at = now()");
+    }
+    const result = await client.query(
+      `
+        insert into ai_models (
+          id, name, provider, model_type, status, is_default, context_window,
+          latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        returning id, name, provider, model_type, status, is_default, context_window,
+          latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+      `,
+      [
+        input.id,
+        input.name,
+        input.provider,
+        input.type,
+        input.status,
+        input.isDefault,
+        input.contextWindow,
+        input.latencyMs,
+        input.costLevel,
+        input.capabilities,
+        input.endpoint,
+        input.apiKeyEnvName ?? null,
+        input.apiKeySecret ?? null
+      ]
+    );
+    await client.query("commit");
+    return mapAiModel(result.rows[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function setDefaultAiModel(id: string): Promise<AiModelRecord | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const existing = await client.query("select id, status from ai_models where id = $1", [id]);
+    if (!existing.rows[0]) {
+      await client.query("rollback");
+      return null;
+    }
+    if (existing.rows[0].status !== "enabled") {
+      throw new Error("Only enabled models can be default");
+    }
+    await client.query("update ai_models set is_default = false, updated_at = now()");
+    const result = await client.query(
+      `
+        update ai_models
+        set is_default = true, updated_at = now()
+        where id = $1
+        returning id, name, provider, model_type, status, is_default, context_window,
+          latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+      `,
+      [id]
+    );
+    await client.query("commit");
+    return mapAiModel(result.rows[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function toggleAiModel(id: string): Promise<AiModelRecord | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const current = await client.query("select id, status from ai_models where id = $1", [id]);
+    if (!current.rows[0]) {
+      await client.query("rollback");
+      return null;
+    }
+
+    const nextStatus = current.rows[0].status === "enabled" ? "disabled" : "enabled";
+    const result = await client.query(
+      `
+        update ai_models
+        set status = $2,
+          is_default = case when $2 = 'disabled' then false else is_default end,
+          updated_at = now()
+        where id = $1
+        returning id, name, provider, model_type, status, is_default, context_window,
+          latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+      `,
+      [id, nextStatus]
+    );
+
+    const defaultCount = await client.query<{ count: string }>("select count(*) from ai_models where is_default = true");
+    if (Number(defaultCount.rows[0]?.count ?? 0) === 0) {
+      await client.query(`
+        update ai_models
+        set is_default = true, updated_at = now()
+        where id = (
+          select id from ai_models
+          where status = 'enabled'
+          order by created_at asc
+          limit 1
+        )
+      `);
+    }
+
+    await client.query("commit");
+    return mapAiModel(result.rows[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function mapServer(row: Record<string, unknown>): ServerRecord {
   return {
     id: String(row.id),
@@ -368,5 +667,24 @@ function mapServer(row: Record<string, unknown>): ServerRecord {
     diskUsage: Number(row.disk_usage),
     loadAvg: Number(row.load_avg),
     tags: Array.isArray(row.tags) ? row.tags.map(String) : []
+  };
+}
+
+function mapAiModel(row: Record<string, unknown>): AiModelRecord {
+  const envName = row.api_key_env_name ? String(row.api_key_env_name) : null;
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    provider: String(row.provider),
+    type: String(row.model_type),
+    status: String(row.status),
+    isDefault: Boolean(row.is_default),
+    contextWindow: String(row.context_window),
+    latencyMs: Number(row.latency_ms),
+    costLevel: String(row.cost_level),
+    capabilities: Array.isArray(row.capabilities) ? row.capabilities.map(String) : [],
+    endpoint: String(row.endpoint),
+    apiKeyEnvName: envName,
+    apiKeyConfigured: Boolean((envName && process.env[envName]) || row.api_key_secret)
   };
 }
