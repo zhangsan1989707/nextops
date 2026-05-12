@@ -199,6 +199,30 @@ type ApprovalSummary = {
   };
 };
 
+type ModelItem = {
+  id: string;
+  name: string;
+  provider: string;
+  type: string;
+  status: string;
+  isDefault: boolean;
+  contextWindow: string;
+  latencyMs: number;
+  costLevel: string;
+  capabilities: string[];
+  endpoint: string;
+};
+
+type ModelSummary = {
+  items: ModelItem[];
+  totals: {
+    models: number;
+    enabled: number;
+    chat: number;
+    embedding: number;
+  };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -305,6 +329,7 @@ export function App() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tenantSummary, setTenantSummary] = useState<TenantSummary | null>(null);
   const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | null>(null);
+  const [modelSummary, setModelSummary] = useState<ModelSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -330,7 +355,8 @@ export function App() {
       nextPackages,
       nextFiles,
       nextTenantSummary,
-      nextApprovalSummary
+      nextApprovalSummary,
+      nextModelSummary
     ] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
@@ -340,7 +366,8 @@ export function App() {
       fetchJson<{ items: PackageItem[] }>("/api/packages"),
       fetchJson<{ items: FileItem[] }>("/api/files"),
       fetchJson<TenantSummary>("/api/tenants/summary"),
-      fetchJson<ApprovalSummary>("/api/approvals")
+      fetchJson<ApprovalSummary>("/api/approvals"),
+      fetchJson<ModelSummary>("/api/models")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -351,6 +378,7 @@ export function App() {
     setFiles(nextFiles.items);
     setTenantSummary(nextTenantSummary);
     setApprovalSummary(nextApprovalSummary);
+    setModelSummary(nextModelSummary);
   }
 
   useEffect(() => {
@@ -366,6 +394,7 @@ export function App() {
         setFiles([]);
         setTenantSummary(null);
         setApprovalSummary(null);
+        setModelSummary(null);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -473,6 +502,7 @@ export function App() {
         {activePage === "files" && <Files files={files} servers={servers} />}
         {activePage === "tenants" && <Tenants summary={tenantSummary} />}
         {activePage === "approvals" && <Approvals summary={approvalSummary} />}
+        {activePage === "models" && <Models summary={modelSummary} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -492,6 +522,7 @@ export function App() {
           activePage !== "files" &&
           activePage !== "tenants" &&
           activePage !== "approvals" &&
+          activePage !== "models" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -1452,6 +1483,151 @@ function Approvals({ summary }: { summary: ApprovalSummary | null }) {
                   type="button"
                 >
                   <XCircle size={16} /> 驳回工单
+                </button>
+              </div>
+            </>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function Models({ summary }: { summary: ModelSummary | null }) {
+  const [models, setModels] = useState<ModelItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextModels = summary?.items ?? [];
+    setModels(nextModels);
+    setSelectedId((current) => current ?? nextModels.find((model) => model.isDefault)?.id ?? nextModels[0]?.id ?? null);
+  }, [summary]);
+
+  const selectedModel = models.find((model) => model.id === selectedId) ?? models[0];
+  const totals = {
+    models: models.length,
+    enabled: models.filter((model) => model.status === "enabled").length,
+    chat: models.filter((model) => model.type === "chat").length,
+    embedding: models.filter((model) => model.type === "embedding").length
+  };
+
+  async function setDefault(modelId: string) {
+    setSubmittingId(modelId);
+    try {
+      const updated = await postJson<ModelItem>(`/api/models/${modelId}/default`, {});
+      setModels((current) => current.map((model) => ({ ...model, isDefault: model.id === updated.id })));
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  async function toggleModel(modelId: string) {
+    setSubmittingId(modelId);
+    try {
+      const updated = await postJson<ModelItem>(`/api/models/${modelId}/toggle`, {});
+      setModels((current) => {
+        const nextModels = current.map((model) => (model.id === updated.id ? updated : model));
+        if (!nextModels.some((model) => model.isDefault) && nextModels.some((model) => model.status === "enabled")) {
+          const fallback = nextModels.find((model) => model.status === "enabled");
+          return nextModels.map((model) => ({ ...model, isDefault: model.id === fallback?.id }));
+        }
+        return nextModels;
+      });
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  return (
+    <section className="models-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><Bot size={20} /></div>
+          <span>模型总数</span>
+          <strong>{summary ? totals.models : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><CheckCircle2 size={20} /></div>
+          <span>已启用</span>
+          <strong>{summary ? totals.enabled : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><MessageSquareText size={20} /></div>
+          <span>对话模型</span>
+          <strong>{summary ? totals.chat : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Database size={20} /></div>
+          <span>向量模型</span>
+          <strong>{summary ? totals.embedding : "--"}</strong>
+        </article>
+      </div>
+
+      <div className="models-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">模型路由</p>
+              <h2>模型管理</h2>
+            </div>
+          </div>
+          <div className="model-list">
+            {models.map((model) => (
+              <button
+                className={selectedModel?.id === model.id ? "model-item active" : "model-item"}
+                key={model.id}
+                onClick={() => setSelectedId(model.id)}
+                type="button"
+              >
+                <span>
+                  <strong>{model.name}</strong>
+                  <small>{model.provider} · {model.type}</small>
+                </span>
+                <em className={`state ${model.status}`}>{model.isDefault ? "default" : model.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel model-detail">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">模型详情</p>
+              <h2>{selectedModel?.name ?? "暂无模型"}</h2>
+            </div>
+            {selectedModel && <span className="status">{selectedModel.costLevel}</span>}
+          </div>
+
+          {selectedModel && (
+            <>
+              <dl className="config-list">
+                <div><dt>Provider</dt><dd>{selectedModel.provider}</dd></div>
+                <div><dt>Endpoint</dt><dd>{selectedModel.endpoint}</dd></div>
+                <div><dt>上下文</dt><dd>{selectedModel.contextWindow}</dd></div>
+                <div><dt>延迟</dt><dd>{selectedModel.latencyMs}ms</dd></div>
+                <div><dt>状态</dt><dd>{selectedModel.status}</dd></div>
+                <div><dt>默认</dt><dd>{selectedModel.isDefault ? "是" : "否"}</dd></div>
+              </dl>
+              <div className="capability-tags">
+                {selectedModel.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
+              </div>
+              <div className="detail-actions">
+                <button
+                  className="primary-button"
+                  disabled={submittingId === selectedModel.id || selectedModel.status !== "enabled" || selectedModel.isDefault}
+                  onClick={() => setDefault(selectedModel.id)}
+                  type="button"
+                >
+                  <ShieldCheck size={16} /> 设为默认
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={submittingId === selectedModel.id}
+                  onClick={() => toggleModel(selectedModel.id)}
+                  type="button"
+                >
+                  <Settings size={16} /> {selectedModel.status === "enabled" ? "停用模型" : "启用模型"}
                 </button>
               </div>
             </>

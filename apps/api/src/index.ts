@@ -166,6 +166,48 @@ let approvalTickets = [
   }
 ];
 
+let aiModels = [
+  {
+    id: "model-ops-gpt-4.1",
+    name: "OpsGPT-4.1",
+    provider: "OpenAI Compatible",
+    type: "chat",
+    status: "enabled",
+    isDefault: true,
+    contextWindow: "128k",
+    latencyMs: 820,
+    costLevel: "medium",
+    capabilities: ["ChatOps", "日志诊断", "修复方案生成", "Slash 指令解析"],
+    endpoint: "https://api.openai.example/v1"
+  },
+  {
+    id: "model-local-qwen",
+    name: "Qwen2.5-Ops-Local",
+    provider: "Private LLM Gateway",
+    type: "chat",
+    status: "enabled",
+    isDefault: false,
+    contextWindow: "32k",
+    latencyMs: 460,
+    costLevel: "low",
+    capabilities: ["内网知识问答", "脚本生成", "告警归因"],
+    endpoint: "http://llm-gateway.local/v1"
+  },
+  {
+    id: "model-embedding-bge",
+    name: "BGE-M3 Embedding",
+    provider: "Vector Service",
+    type: "embedding",
+    status: "disabled",
+    isDefault: false,
+    contextWindow: "8k",
+    latencyMs: 120,
+    costLevel: "low",
+    capabilities: ["日志向量化", "知识库检索", "相似事件召回"],
+    endpoint: "http://vector.local/embedding"
+  }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -665,6 +707,61 @@ app.post("/api/approvals/:id/action", (req, res) => {
 
   approvalTickets = approvalTickets.map((item) => (item.id === nextTicket.id ? nextTicket : item));
   res.json(nextTicket);
+});
+
+app.get("/api/models", (_req, res) => {
+  res.json({
+    items: aiModels,
+    totals: {
+      models: aiModels.length,
+      enabled: aiModels.filter((model) => model.status === "enabled").length,
+      chat: aiModels.filter((model) => model.type === "chat").length,
+      embedding: aiModels.filter((model) => model.type === "embedding").length
+    }
+  });
+});
+
+app.post("/api/models/:id/default", (req, res) => {
+  const model = aiModels.find((item) => item.id === req.params.id);
+  if (!model) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+
+  if (model.status !== "enabled") {
+    res.status(400).json({ message: "Only enabled models can be default" });
+    return;
+  }
+
+  aiModels = aiModels.map((item) => ({ ...item, isDefault: item.id === model.id }));
+  res.json(aiModels.find((item) => item.id === model.id));
+});
+
+app.post("/api/models/:id/toggle", (req, res) => {
+  const model = aiModels.find((item) => item.id === req.params.id);
+  if (!model) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+
+  const nextStatus = model.status === "enabled" ? "disabled" : "enabled";
+  aiModels = aiModels.map((item) => {
+    if (item.id !== model.id) {
+      return item;
+    }
+    return {
+      ...item,
+      status: nextStatus,
+      isDefault: nextStatus === "disabled" ? false : item.isDefault
+    };
+  });
+
+  if (!aiModels.some((item) => item.isDefault) && aiModels.some((item) => item.status === "enabled")) {
+    const firstEnabled = aiModels.find((item) => item.status === "enabled");
+    aiModels = aiModels.map((item) => ({ ...item, isDefault: item.id === firstEnabled?.id }));
+  }
+
+  res.json(aiModels.find((item) => item.id === model.id));
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

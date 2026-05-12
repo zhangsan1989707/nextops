@@ -1120,6 +1120,70 @@ select {
   color: #b42318;
 }
 
+.models-page {
+  display: grid;
+  gap: 16px;
+}
+
+.models-layout {
+  display: grid;
+  grid-template-columns: 0.9fr 1.4fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.model-list {
+  display: grid;
+  gap: 10px;
+}
+
+.model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  text-align: left;
+}
+
+.model-item.active,
+.model-item:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.model-item strong,
+.model-item small {
+  display: block;
+}
+
+.model-item small {
+  color: #667085;
+}
+
+.model-detail {
+  min-height: 100%;
+}
+
+.capability-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.capability-tags span {
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #1f6feb;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1355,6 +1419,7 @@ select {
   .packages-layout,
   .files-layout,
   .approvals-layout,
+  .models-layout,
   .diagnosis-grid {
     grid-template-columns: 1fr;
   }
