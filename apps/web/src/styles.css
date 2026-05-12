@@ -1184,6 +1184,55 @@ select {
   padding: 6px 10px;
 }
 
+.members-page {
+  display: grid;
+  gap: 16px;
+}
+
+.members-layout {
+  display: grid;
+  grid-template-columns: 0.9fr 1.4fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.member-list {
+  display: grid;
+  gap: 10px;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  text-align: left;
+}
+
+.member-item.active,
+.member-item:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.member-item strong,
+.member-item small {
+  display: block;
+}
+
+.member-item small {
+  color: #667085;
+}
+
+.member-detail {
+  min-height: 100%;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1420,6 +1469,7 @@ select {
   .files-layout,
   .approvals-layout,
   .models-layout,
+  .members-layout,
   .diagnosis-grid {
     grid-template-columns: 1fr;
   }

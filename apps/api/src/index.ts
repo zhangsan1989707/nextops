@@ -208,6 +208,39 @@ let aiModels = [
   }
 ];
 
+let members = [
+  {
+    id: "mem-001",
+    name: "Leo Hang",
+    email: "leo@example.com",
+    role: "Owner",
+    team: "平台工程",
+    status: "active",
+    lastSeenAt: "2026-05-12T07:58:00.000Z",
+    permissions: ["全局配置", "模型管理", "审批处理", "服务器纳管"]
+  },
+  {
+    id: "mem-002",
+    name: "SRE Oncall",
+    email: "sre@example.com",
+    role: "SRE",
+    team: "稳定性团队",
+    status: "active",
+    lastSeenAt: "2026-05-12T06:40:00.000Z",
+    permissions: ["告警处理", "脚本执行", "AI 诊断"]
+  },
+  {
+    id: "mem-003",
+    name: "DevOps Reviewer",
+    email: "devops@example.com",
+    role: "Reviewer",
+    team: "DevOps Lab",
+    status: "pending",
+    lastSeenAt: null,
+    permissions: ["工单审核", "部署确认"]
+  }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -762,6 +795,46 @@ app.post("/api/models/:id/toggle", (req, res) => {
   }
 
   res.json(aiModels.find((item) => item.id === model.id));
+});
+
+app.get("/api/members", (_req, res) => {
+  res.json({
+    items: members,
+    totals: {
+      members: members.length,
+      active: members.filter((member) => member.status === "active").length,
+      pending: members.filter((member) => member.status === "pending").length,
+      admins: members.filter((member) => member.role === "Owner").length
+    }
+  });
+});
+
+app.post("/api/members/:id/toggle", (req, res) => {
+  const member = members.find((item) => item.id === req.params.id);
+  if (!member) {
+    res.status(404).json({ message: "Member not found" });
+    return;
+  }
+
+  const nextStatus = member.status === "active" ? "disabled" : "active";
+  members = members.map((item) => (item.id === member.id ? { ...item, status: nextStatus } : item));
+  res.json(members.find((item) => item.id === member.id));
+});
+
+app.post("/api/members/:id/role", (req, res) => {
+  const { role } = req.body as { role?: string };
+  const member = members.find((item) => item.id === req.params.id);
+  if (!member) {
+    res.status(404).json({ message: "Member not found" });
+    return;
+  }
+  if (!role || !["Owner", "SRE", "Reviewer", "Developer"].includes(role)) {
+    res.status(400).json({ message: "Invalid role" });
+    return;
+  }
+
+  members = members.map((item) => (item.id === member.id ? { ...item, role } : item));
+  res.json(members.find((item) => item.id === member.id));
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -223,6 +223,27 @@ type ModelSummary = {
   };
 };
 
+type MemberItem = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  team: string;
+  status: string;
+  lastSeenAt: string | null;
+  permissions: string[];
+};
+
+type MemberSummary = {
+  items: MemberItem[];
+  totals: {
+    members: number;
+    active: number;
+    pending: number;
+    admins: number;
+  };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -330,6 +351,7 @@ export function App() {
   const [tenantSummary, setTenantSummary] = useState<TenantSummary | null>(null);
   const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | null>(null);
   const [modelSummary, setModelSummary] = useState<ModelSummary | null>(null);
+  const [memberSummary, setMemberSummary] = useState<MemberSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -356,7 +378,8 @@ export function App() {
       nextFiles,
       nextTenantSummary,
       nextApprovalSummary,
-      nextModelSummary
+      nextModelSummary,
+      nextMemberSummary
     ] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
@@ -367,7 +390,8 @@ export function App() {
       fetchJson<{ items: FileItem[] }>("/api/files"),
       fetchJson<TenantSummary>("/api/tenants/summary"),
       fetchJson<ApprovalSummary>("/api/approvals"),
-      fetchJson<ModelSummary>("/api/models")
+      fetchJson<ModelSummary>("/api/models"),
+      fetchJson<MemberSummary>("/api/members")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -379,6 +403,7 @@ export function App() {
     setTenantSummary(nextTenantSummary);
     setApprovalSummary(nextApprovalSummary);
     setModelSummary(nextModelSummary);
+    setMemberSummary(nextMemberSummary);
   }
 
   useEffect(() => {
@@ -395,6 +420,7 @@ export function App() {
         setTenantSummary(null);
         setApprovalSummary(null);
         setModelSummary(null);
+        setMemberSummary(null);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -503,6 +529,7 @@ export function App() {
         {activePage === "tenants" && <Tenants summary={tenantSummary} />}
         {activePage === "approvals" && <Approvals summary={approvalSummary} />}
         {activePage === "models" && <Models summary={modelSummary} />}
+        {activePage === "members" && <Members summary={memberSummary} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -523,6 +550,7 @@ export function App() {
           activePage !== "tenants" &&
           activePage !== "approvals" &&
           activePage !== "models" &&
+          activePage !== "members" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -1629,6 +1657,147 @@ function Models({ summary }: { summary: ModelSummary | null }) {
                 >
                   <Settings size={16} /> {selectedModel.status === "enabled" ? "停用模型" : "启用模型"}
                 </button>
+              </div>
+            </>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function Members({ summary }: { summary: MemberSummary | null }) {
+  const [members, setMembers] = useState<MemberItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextMembers = summary?.items ?? [];
+    setMembers(nextMembers);
+    setSelectedId((current) => current ?? nextMembers[0]?.id ?? null);
+  }, [summary]);
+
+  const selectedMember = members.find((member) => member.id === selectedId) ?? members[0];
+  const totals = {
+    members: members.length,
+    active: members.filter((member) => member.status === "active").length,
+    pending: members.filter((member) => member.status === "pending").length,
+    admins: members.filter((member) => member.role === "Owner").length
+  };
+
+  async function toggleMember(memberId: string) {
+    setSubmittingId(memberId);
+    try {
+      const updated = await postJson<MemberItem>(`/api/members/${memberId}/toggle`, {});
+      setMembers((current) => current.map((member) => (member.id === updated.id ? updated : member)));
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  async function changeRole(memberId: string, role: string) {
+    setSubmittingId(memberId);
+    try {
+      const updated = await postJson<MemberItem>(`/api/members/${memberId}/role`, { role });
+      setMembers((current) => current.map((member) => (member.id === updated.id ? updated : member)));
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  return (
+    <section className="members-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><Users size={20} /></div>
+          <span>成员总数</span>
+          <strong>{summary ? totals.members : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><CheckCircle2 size={20} /></div>
+          <span>活跃成员</span>
+          <strong>{summary ? totals.active : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><ShieldCheck size={20} /></div>
+          <span>待激活</span>
+          <strong>{summary ? totals.pending : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><KeyRound size={20} /></div>
+          <span>管理员</span>
+          <strong>{summary ? totals.admins : "--"}</strong>
+        </article>
+      </div>
+
+      <div className="members-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">成员</p>
+              <h2>成员管理</h2>
+            </div>
+          </div>
+          <div className="member-list">
+            {members.map((member) => (
+              <button
+                className={selectedMember?.id === member.id ? "member-item active" : "member-item"}
+                key={member.id}
+                onClick={() => setSelectedId(member.id)}
+                type="button"
+              >
+                <span>
+                  <strong>{member.name}</strong>
+                  <small>{member.email} · {member.team}</small>
+                </span>
+                <em className={`state ${member.status}`}>{member.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel member-detail">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">成员详情</p>
+              <h2>{selectedMember?.name ?? "暂无成员"}</h2>
+            </div>
+            {selectedMember && <span className="status">{selectedMember.role}</span>}
+          </div>
+
+          {selectedMember && (
+            <>
+              <dl className="config-list">
+                <div><dt>邮箱</dt><dd>{selectedMember.email}</dd></div>
+                <div><dt>团队</dt><dd>{selectedMember.team}</dd></div>
+                <div><dt>状态</dt><dd>{selectedMember.status}</dd></div>
+                <div><dt>最近在线</dt><dd>{selectedMember.lastSeenAt ? new Date(selectedMember.lastSeenAt).toLocaleString() : "未登录"}</dd></div>
+              </dl>
+              <div className="run-controls">
+                <label>
+                  角色
+                  <select
+                    disabled={submittingId === selectedMember.id}
+                    onChange={(event) => changeRole(selectedMember.id, event.target.value)}
+                    value={selectedMember.role}
+                  >
+                    <option value="Owner">Owner</option>
+                    <option value="SRE">SRE</option>
+                    <option value="Reviewer">Reviewer</option>
+                    <option value="Developer">Developer</option>
+                  </select>
+                </label>
+                <button
+                  className="secondary-button"
+                  disabled={submittingId === selectedMember.id}
+                  onClick={() => toggleMember(selectedMember.id)}
+                  type="button"
+                >
+                  <Settings size={16} /> {selectedMember.status === "active" ? "停用成员" : "启用成员"}
+                </button>
+              </div>
+              <div className="capability-tags">
+                {selectedMember.permissions.map((permission) => <span key={permission}>{permission}</span>)}
               </div>
             </>
           )}
