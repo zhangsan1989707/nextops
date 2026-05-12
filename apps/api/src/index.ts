@@ -18,6 +18,21 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
 
+type AiModel = {
+  id: string;
+  name: string;
+  provider: string;
+  type: string;
+  status: string;
+  isDefault: boolean;
+  contextWindow: string;
+  latencyMs: number;
+  costLevel: string;
+  capabilities: string[];
+  endpoint: string;
+  apiKeyEnvName?: string;
+};
+
 app.use(cors());
 app.use(express.json());
 
@@ -166,14 +181,30 @@ let approvalTickets = [
   }
 ];
 
-let aiModels = [
+const modelSecrets = new Map<string, string>();
+
+let aiModels: AiModel[] = [
+  {
+    id: "deepseek-v4-flash",
+    name: "Deepseek",
+    provider: "Deepseek",
+    type: "chat",
+    status: "enabled",
+    isDefault: true,
+    contextWindow: "64k",
+    latencyMs: 520,
+    costLevel: "low",
+    capabilities: ["ChatOps", "日志诊断", "修复方案生成", "低延迟推理"],
+    endpoint: "https://api.deepseek.com/v1",
+    apiKeyEnvName: "DEEPSEEK_API_KEY"
+  },
   {
     id: "model-ops-gpt-4.1",
     name: "OpsGPT-4.1",
     provider: "OpenAI Compatible",
     type: "chat",
     status: "enabled",
-    isDefault: true,
+    isDefault: false,
     contextWindow: "128k",
     latencyMs: 820,
     costLevel: "medium",
@@ -851,7 +882,7 @@ app.post("/api/approvals/:id/action", (req, res) => {
 
 app.get("/api/models", (_req, res) => {
   res.json({
-    items: aiModels,
+    items: aiModels.map(toPublicModel),
     totals: {
       models: aiModels.length,
       enabled: aiModels.filter((model) => model.status === "enabled").length,
@@ -859,6 +890,61 @@ app.get("/api/models", (_req, res) => {
       embedding: aiModels.filter((model) => model.type === "embedding").length
     }
   });
+});
+
+app.post("/api/models", (req, res) => {
+  const body = req.body as {
+    id?: string;
+    name?: string;
+    provider?: string;
+    type?: string;
+    endpoint?: string;
+    apiKey?: string;
+    contextWindow?: string;
+    costLevel?: string;
+    capabilities?: string[];
+    setDefault?: boolean;
+  };
+  const id = String(body.id ?? "").trim();
+  const name = String(body.name ?? "").trim();
+  const endpoint = String(body.endpoint ?? "").trim();
+  const provider = String(body.provider ?? "OpenAI Compatible").trim();
+  const type = String(body.type ?? "chat").trim();
+
+  if (!id || !name || !endpoint) {
+    res.status(400).json({ message: "id, name and endpoint are required" });
+    return;
+  }
+  if (aiModels.some((model) => model.id === id)) {
+    res.status(409).json({ message: "Model id already exists" });
+    return;
+  }
+
+  const nextModel: AiModel = {
+    id,
+    name,
+    provider,
+    type,
+    status: "enabled",
+    isDefault: Boolean(body.setDefault),
+    contextWindow: String(body.contextWindow ?? "32k").trim() || "32k",
+    latencyMs: provider.toLowerCase().includes("local") ? 180 : 650,
+    costLevel: String(body.costLevel ?? "medium").trim() || "medium",
+    capabilities: Array.isArray(body.capabilities) && body.capabilities.length > 0
+      ? body.capabilities.map(String).map((item) => item.trim()).filter(Boolean)
+      : ["ChatOps", "日志诊断", "修复方案生成"],
+    endpoint
+  };
+
+  const apiKey = String(body.apiKey ?? "").trim();
+  if (apiKey) {
+    modelSecrets.set(id, apiKey);
+  }
+
+  aiModels = body.setDefault
+    ? [...aiModels.map((model) => ({ ...model, isDefault: false })), nextModel]
+    : [...aiModels, nextModel];
+  res.status(201).json(toPublicModel(nextModel));
 });
 
 app.post("/api/models/:id/default", (req, res) => {
@@ -874,7 +960,7 @@ app.post("/api/models/:id/default", (req, res) => {
   }
 
   aiModels = aiModels.map((item) => ({ ...item, isDefault: item.id === model.id }));
-  res.json(aiModels.find((item) => item.id === model.id));
+  res.json(toPublicModel(aiModels.find((item) => item.id === model.id)));
 });
 
 app.post("/api/models/:id/toggle", (req, res) => {
@@ -901,7 +987,7 @@ app.post("/api/models/:id/toggle", (req, res) => {
     aiModels = aiModels.map((item) => ({ ...item, isDefault: item.id === firstEnabled?.id }));
   }
 
-  res.json(aiModels.find((item) => item.id === model.id));
+  res.json(toPublicModel(aiModels.find((item) => item.id === model.id)));
 });
 
 app.get("/api/members", (_req, res) => {
@@ -1031,6 +1117,16 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   console.error(error);
   res.status(500).json({ message: "Internal server error" });
 });
+
+function toPublicModel(model: AiModel | undefined) {
+  if (!model) {
+    return model;
+  }
+  return {
+    ...model,
+    apiKeyConfigured: Boolean((model.apiKeyEnvName && process.env[model.apiKeyEnvName]) || modelSecrets.has(model.id))
+  };
+}
 
 function parseTags(value: unknown): string[] {
   if (Array.isArray(value)) {

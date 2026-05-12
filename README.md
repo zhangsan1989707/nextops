@@ -10,6 +10,13 @@ Requirements:
 - Node.js 20+
 - npm 10+
 
+Optional model secret:
+
+```bash
+cp .env.example .env
+# set DEEPSEEK_API_KEY in .env
+```
+
 Run with Docker Compose:
 
 ```bash
@@ -41,6 +48,7 @@ docs/
 - Server list and server health detail.
 - Alert center, script center, slash commands, package management and file management.
 - Tenant dashboard, approval review, model management, member management, team structure and role permissions.
+- Model management supports adding local/Ollama, Deepseek and OpenAI-compatible models. Deepseek `deepseek-v4-flash` is the default demo model when configured.
 - Docker Compose for web, API, PostgreSQL and Redis.
 - Jenkins pipeline for install, lint, build, Docker build, local deploy and smoke test.
 

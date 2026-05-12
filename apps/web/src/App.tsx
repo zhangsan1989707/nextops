@@ -211,6 +211,7 @@ type ModelItem = {
   costLevel: string;
   capabilities: string[];
   endpoint: string;
+  apiKeyConfigured: boolean;
 };
 
 type ModelSummary = {
@@ -221,6 +222,18 @@ type ModelSummary = {
     chat: number;
     embedding: number;
   };
+};
+
+type ModelDraft = {
+  name: string;
+  id: string;
+  provider: string;
+  type: string;
+  endpoint: string;
+  apiKey: string;
+  contextWindow: string;
+  costLevel: string;
+  setDefault: boolean;
 };
 
 type MemberItem = {
@@ -1591,6 +1604,18 @@ function Models({ summary }: { summary: ModelSummary | null }) {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [savingModel, setSavingModel] = useState(false);
+  const [modelDraft, setModelDraft] = useState<ModelDraft>({
+    name: "本地 Ollama",
+    id: "local-ollama-qwen",
+    provider: "Local",
+    type: "chat",
+    endpoint: "http://localhost:11434/v1",
+    apiKey: "",
+    contextWindow: "32k",
+    costLevel: "low",
+    setDefault: false
+  });
 
   useEffect(() => {
     const nextModels = summary?.items ?? [];
@@ -1630,6 +1655,72 @@ function Models({ summary }: { summary: ModelSummary | null }) {
       });
     } finally {
       setSubmittingId(null);
+    }
+  }
+
+  function applyModelTemplate(template: string) {
+    const templates: Record<string, ModelDraft> = {
+      local: {
+        name: "本地 Ollama",
+        id: "local-ollama-qwen",
+        provider: "Local",
+        type: "chat",
+        endpoint: "http://localhost:11434/v1",
+        apiKey: "",
+        contextWindow: "32k",
+        costLevel: "low",
+        setDefault: false
+      },
+      deepseek: {
+        name: "Deepseek",
+        id: "deepseek-v4-flash-custom",
+        provider: "Deepseek",
+        type: "chat",
+        endpoint: "https://api.deepseek.com/v1",
+        apiKey: "",
+        contextWindow: "64k",
+        costLevel: "low",
+        setDefault: false
+      },
+      openai: {
+        name: "OpenAI Compatible",
+        id: "openai-compatible-main",
+        provider: "OpenAI Compatible",
+        type: "chat",
+        endpoint: "https://api.openai.com/v1",
+        apiKey: "",
+        contextWindow: "128k",
+        costLevel: "medium",
+        setDefault: false
+      }
+    };
+    setModelDraft(templates[template] ?? templates.local);
+  }
+
+  function updateModelDraft<K extends keyof ModelDraft>(key: K, value: ModelDraft[K]) {
+    setModelDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function createModel(event: FormEvent) {
+    event.preventDefault();
+    setSavingModel(true);
+    try {
+      const created = await postJson<ModelItem>("/api/models", {
+        ...modelDraft,
+        capabilities: modelDraft.provider === "Local"
+          ? ["内网知识问答", "脚本生成", "日志诊断"]
+          : ["ChatOps", "日志诊断", "修复方案生成"]
+      });
+      setModels((current) => {
+        const nextModels = modelDraft.setDefault
+          ? current.map((model) => ({ ...model, isDefault: false }))
+          : current;
+        return [...nextModels, created];
+      });
+      setSelectedId(created.id);
+      setModelDraft((current) => ({ ...current, apiKey: "", setDefault: false }));
+    } finally {
+      setSavingModel(false);
     }
   }
 
@@ -1702,6 +1793,7 @@ function Models({ summary }: { summary: ModelSummary | null }) {
                 <div><dt>延迟</dt><dd>{selectedModel.latencyMs}ms</dd></div>
                 <div><dt>状态</dt><dd>{selectedModel.status}</dd></div>
                 <div><dt>默认</dt><dd>{selectedModel.isDefault ? "是" : "否"}</dd></div>
+                <div><dt>密钥</dt><dd>{selectedModel.apiKeyConfigured ? "已配置" : "未配置"}</dd></div>
               </dl>
               <div className="capability-tags">
                 {selectedModel.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
@@ -1726,6 +1818,83 @@ function Models({ summary }: { summary: ModelSummary | null }) {
               </div>
             </>
           )}
+        </article>
+
+        <article className="panel model-create">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">接入</p>
+              <h2>添加模型</h2>
+            </div>
+          </div>
+          <form className="model-form" onSubmit={createModel}>
+            <label>
+              模型模板
+              <select onChange={(event) => applyModelTemplate(event.target.value)} defaultValue="local">
+                <option value="local">本地模型 / Ollama</option>
+                <option value="deepseek">Deepseek</option>
+                <option value="openai">OpenAI Compatible</option>
+              </select>
+            </label>
+            <label>
+              名称
+              <input value={modelDraft.name} onChange={(event) => updateModelDraft("name", event.target.value)} />
+            </label>
+            <label>
+              模型 ID
+              <input value={modelDraft.id} onChange={(event) => updateModelDraft("id", event.target.value)} />
+            </label>
+            <label>
+              Provider
+              <input value={modelDraft.provider} onChange={(event) => updateModelDraft("provider", event.target.value)} />
+            </label>
+            <label>
+              Endpoint
+              <input value={modelDraft.endpoint} onChange={(event) => updateModelDraft("endpoint", event.target.value)} />
+            </label>
+            <label>
+              API Key
+              <input
+                autoComplete="off"
+                placeholder="本地模型可留空"
+                type="password"
+                value={modelDraft.apiKey}
+                onChange={(event) => updateModelDraft("apiKey", event.target.value)}
+              />
+            </label>
+            <div className="form-row">
+              <label>
+                类型
+                <select value={modelDraft.type} onChange={(event) => updateModelDraft("type", event.target.value)}>
+                  <option value="chat">chat</option>
+                  <option value="embedding">embedding</option>
+                </select>
+              </label>
+              <label>
+                上下文
+                <input value={modelDraft.contextWindow} onChange={(event) => updateModelDraft("contextWindow", event.target.value)} />
+              </label>
+              <label>
+                成本
+                <select value={modelDraft.costLevel} onChange={(event) => updateModelDraft("costLevel", event.target.value)}>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </label>
+            </div>
+            <label className="checkbox-line">
+              <input
+                checked={modelDraft.setDefault}
+                onChange={(event) => updateModelDraft("setDefault", event.target.checked)}
+                type="checkbox"
+              />
+              设为默认模型
+            </label>
+            <button className="primary-button" disabled={savingModel} type="submit">
+              <Bot size={16} /> {savingModel ? "添加中" : "添加模型"}
+            </button>
+          </form>
         </article>
       </div>
     </section>
