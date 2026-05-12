@@ -1032,6 +1032,94 @@ select {
   font-size: 18px;
 }
 
+.approvals-page {
+  display: grid;
+  gap: 16px;
+}
+
+.approvals-layout {
+  display: grid;
+  grid-template-columns: 0.9fr 1.4fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.approval-list {
+  display: grid;
+  gap: 10px;
+}
+
+.approval-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  text-align: left;
+}
+
+.approval-item.active,
+.approval-item:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.approval-item strong,
+.approval-item small {
+  display: block;
+}
+
+.approval-item small {
+  color: #667085;
+}
+
+.state {
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #475467;
+  font-size: 12px;
+  font-style: normal;
+  padding: 5px 9px;
+}
+
+.state.pending {
+  background: #fff7e6;
+  color: #b45309;
+}
+
+.state.approved {
+  background: #e9f9ef;
+  color: #15803d;
+}
+
+.state.rejected {
+  background: #fff0f0;
+  color: #b42318;
+}
+
+.approval-detail {
+  min-height: 100%;
+}
+
+.comment-box {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  padding: 12px;
+  font: inherit;
+}
+
+.secondary-button.danger {
+  border-color: #ffc9c9;
+  color: #b42318;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1266,6 +1354,7 @@ select {
   .commands-layout,
   .packages-layout,
   .files-layout,
+  .approvals-layout,
   .diagnosis-grid {
     grid-template-columns: 1fr;
   }

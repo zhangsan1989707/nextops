@@ -5,6 +5,7 @@ import {
   Bot,
   Boxes,
   Building2,
+  CheckCircle2,
   ChevronRight,
   Code2,
   Database,
@@ -24,7 +25,8 @@ import {
   Settings,
   ShieldCheck,
   Terminal,
-  Users
+  Users,
+  XCircle
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -169,6 +171,34 @@ type TenantSummary = {
   };
 };
 
+type ApprovalItem = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  riskLevel: string;
+  requester: string;
+  target: string;
+  environment: string;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewer?: string;
+  comment?: string;
+  summary: string;
+  steps: string[];
+  relatedResource: string;
+};
+
+type ApprovalSummary = {
+  items: ApprovalItem[];
+  totals: {
+    pending: number;
+    approved: number;
+    rejected: number;
+    highRisk: number;
+  };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -274,6 +304,7 @@ export function App() {
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tenantSummary, setTenantSummary] = useState<TenantSummary | null>(null);
+  const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -298,7 +329,8 @@ export function App() {
       nextSlashCommands,
       nextPackages,
       nextFiles,
-      nextTenantSummary
+      nextTenantSummary,
+      nextApprovalSummary
     ] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
@@ -307,7 +339,8 @@ export function App() {
       fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands"),
       fetchJson<{ items: PackageItem[] }>("/api/packages"),
       fetchJson<{ items: FileItem[] }>("/api/files"),
-      fetchJson<TenantSummary>("/api/tenants/summary")
+      fetchJson<TenantSummary>("/api/tenants/summary"),
+      fetchJson<ApprovalSummary>("/api/approvals")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -317,6 +350,7 @@ export function App() {
     setPackages(nextPackages.items);
     setFiles(nextFiles.items);
     setTenantSummary(nextTenantSummary);
+    setApprovalSummary(nextApprovalSummary);
   }
 
   useEffect(() => {
@@ -331,6 +365,7 @@ export function App() {
         setPackages([]);
         setFiles([]);
         setTenantSummary(null);
+        setApprovalSummary(null);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -437,6 +472,7 @@ export function App() {
         {activePage === "packages" && <Packages packages={packages} servers={servers} />}
         {activePage === "files" && <Files files={files} servers={servers} />}
         {activePage === "tenants" && <Tenants summary={tenantSummary} />}
+        {activePage === "approvals" && <Approvals summary={approvalSummary} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -455,6 +491,7 @@ export function App() {
           activePage !== "packages" &&
           activePage !== "files" &&
           activePage !== "tenants" &&
+          activePage !== "approvals" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -1274,6 +1311,153 @@ function Tenants({ summary }: { summary: TenantSummary | null }) {
           ))}
         </div>
       </article>
+    </section>
+  );
+}
+
+function Approvals({ summary }: { summary: ApprovalSummary | null }) {
+  const [tickets, setTickets] = useState<ApprovalItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const nextTickets = summary?.items ?? [];
+    setTickets(nextTickets);
+    setSelectedId((current) => current ?? nextTickets[0]?.id ?? null);
+  }, [summary]);
+
+  const selectedTicket = tickets.find((ticket) => ticket.id === selectedId) ?? tickets[0];
+  const totals = {
+    pending: tickets.filter((ticket) => ticket.status === "pending").length,
+    approved: tickets.filter((ticket) => ticket.status === "approved").length,
+    rejected: tickets.filter((ticket) => ticket.status === "rejected").length,
+    highRisk: tickets.filter((ticket) => ticket.riskLevel === "high").length
+  };
+
+  async function review(action: "approve" | "reject") {
+    if (!selectedTicket) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const reviewedTicket = await postJson<ApprovalItem>(`/api/approvals/${selectedTicket.id}/action`, {
+        action,
+        comment
+      });
+      setTickets((current) => current.map((ticket) => (ticket.id === reviewedTicket.id ? reviewedTicket : ticket)));
+      setComment("");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="approvals-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon amber"><ShieldCheck size={20} /></div>
+          <span>待审核</span>
+          <strong>{summary ? totals.pending : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><CheckCircle2 size={20} /></div>
+          <span>已通过</span>
+          <strong>{summary ? totals.approved : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><XCircle size={20} /></div>
+          <span>已驳回</span>
+          <strong>{summary ? totals.rejected : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon blue"><Bell size={20} /></div>
+          <span>高风险</span>
+          <strong>{summary ? totals.highRisk : "--"}</strong>
+        </article>
+      </div>
+
+      <div className="approvals-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">审批队列</p>
+              <h2>工单审核</h2>
+            </div>
+          </div>
+          <div className="approval-list">
+            {tickets.map((ticket) => (
+              <button
+                className={selectedTicket?.id === ticket.id ? "approval-item active" : "approval-item"}
+                key={ticket.id}
+                onClick={() => {
+                  setSelectedId(ticket.id);
+                  setComment(ticket.comment ?? "");
+                }}
+                type="button"
+              >
+                <span>
+                  <strong>{ticket.title}</strong>
+                  <small>{ticket.requester} · {ticket.target}</small>
+                </span>
+                <em className={`state ${ticket.status}`}>{ticket.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel approval-detail">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">工单详情</p>
+              <h2>{selectedTicket?.title ?? "暂无工单"}</h2>
+            </div>
+            {selectedTicket && <span className="status">{selectedTicket.riskLevel}</span>}
+          </div>
+
+          {selectedTicket && (
+            <>
+              <p className="diagnosis-summary">{selectedTicket.summary}</p>
+              <dl className="config-list">
+                <div><dt>类型</dt><dd>{selectedTicket.type}</dd></div>
+                <div><dt>环境</dt><dd>{selectedTicket.environment}</dd></div>
+                <div><dt>资源</dt><dd>{selectedTicket.relatedResource}</dd></div>
+                <div><dt>创建时间</dt><dd>{new Date(selectedTicket.createdAt).toLocaleString()}</dd></div>
+                <div><dt>审核人</dt><dd>{selectedTicket.reviewer ?? "待处理"}</dd></div>
+                <div><dt>审核意见</dt><dd>{selectedTicket.comment ?? "未填写"}</dd></div>
+              </dl>
+              <ol className="plan-list">
+                {selectedTicket.steps.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+              <textarea
+                className="comment-box"
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="填写审批意见"
+                value={comment}
+              />
+              <div className="detail-actions">
+                <button
+                  className="primary-button"
+                  disabled={submitting || selectedTicket.status !== "pending"}
+                  onClick={() => review("approve")}
+                  type="button"
+                >
+                  <CheckCircle2 size={16} /> 通过审批
+                </button>
+                <button
+                  className="secondary-button danger"
+                  disabled={submitting || selectedTicket.status !== "pending"}
+                  onClick={() => review("reject")}
+                  type="button"
+                >
+                  <XCircle size={16} /> 驳回工单
+                </button>
+              </div>
+            </>
+          )}
+        </article>
+      </div>
     </section>
   );
 }
