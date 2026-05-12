@@ -78,6 +78,33 @@ type AlertItem = {
   triggeredAt: string;
 };
 
+type ScriptItem = {
+  id: string;
+  name: string;
+  type: string;
+  riskLevel: string;
+  version: string;
+  successRate: number;
+};
+
+type ScriptDetailData = ScriptItem & {
+  description: string;
+  parameters: Array<{ name: string; required: boolean; defaultValue: string }>;
+  content: string;
+  lastRuns: Array<{ id: string; target: string; status: string; durationSeconds: number; createdAt: string }>;
+};
+
+type ScriptRunResult = {
+  taskId: string;
+  scriptName: string;
+  status: string;
+  riskLevel: string;
+  requiresApproval: boolean;
+  plan: string[];
+  output: string;
+  target: { id: string; hostname: string; ip: string; environment: string };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -178,6 +205,7 @@ export function App() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [servers, setServers] = useState<ServerItem[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [scripts, setScripts] = useState<ScriptItem[]>([]);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -194,14 +222,16 @@ export function App() {
   }, [activePage]);
 
   async function refreshData() {
-    const [nextSummary, nextServers, nextAlerts] = await Promise.all([
+    const [nextSummary, nextServers, nextAlerts, nextScripts] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
-      fetchJson<{ items: AlertItem[] }>("/api/alerts")
+      fetchJson<{ items: AlertItem[] }>("/api/alerts"),
+      fetchJson<{ items: ScriptItem[] }>("/api/scripts")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
     setAlerts(nextAlerts.items);
+    setScripts(nextScripts.items);
   }
 
   useEffect(() => {
@@ -211,6 +241,7 @@ export function App() {
         setSummary(null);
         setServers([]);
         setAlerts([]);
+        setScripts([]);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -312,6 +343,7 @@ export function App() {
             onServerCreated={refreshData}
           />
         )}
+        {activePage === "scripts" && <Scripts scripts={scripts} servers={servers} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -325,6 +357,7 @@ export function App() {
           activePage !== "alerts" &&
           activePage !== "chatops" &&
           activePage !== "servers" &&
+          activePage !== "scripts" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -485,6 +518,189 @@ function Alerts({
             <ListBlock title="修复方案" items={diagnosis.repairPlan} />
           </div>
         </article>
+      )}
+    </section>
+  );
+}
+
+function Scripts({ scripts, servers }: { scripts: ScriptItem[]; servers: ServerItem[] }) {
+  const [selectedScriptId, setSelectedScriptId] = useState<string | null>(scripts[0]?.id ?? null);
+  const [detail, setDetail] = useState<ScriptDetailData | null>(null);
+  const [targetId, setTargetId] = useState<string>(servers[0]?.id ?? "");
+  const [runResult, setRunResult] = useState<ScriptRunResult | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    if (!selectedScriptId && scripts.length > 0) {
+      setSelectedScriptId(scripts[0].id);
+    }
+  }, [scripts, selectedScriptId]);
+
+  useEffect(() => {
+    if (!targetId && servers.length > 0) {
+      setTargetId(servers[0].id);
+    }
+  }, [servers, targetId]);
+
+  useEffect(() => {
+    if (!selectedScriptId) {
+      return;
+    }
+    setLoadingDetail(true);
+    setRunResult(null);
+    fetchJson<ScriptDetailData>(`/api/scripts/${selectedScriptId}`)
+      .then(setDetail)
+      .finally(() => setLoadingDetail(false));
+  }, [selectedScriptId]);
+
+  async function runScript() {
+    if (!selectedScriptId || !targetId) {
+      return;
+    }
+    setRunning(true);
+    try {
+      setRunResult(await postJson<ScriptRunResult>(`/api/scripts/${selectedScriptId}/run`, { targetId }));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const lowRiskCount = scripts.filter((script) => script.riskLevel === "low").length;
+  const avgSuccess =
+    scripts.length > 0 ? Math.round(scripts.reduce((total, script) => total + script.successRate, 0) / scripts.length) : 0;
+
+  return (
+    <section className="scripts-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><FileCode2 size={20} /></div>
+          <span>脚本总数</span>
+          <strong>{scripts.length}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><ShieldCheck size={20} /></div>
+          <span>低风险脚本</span>
+          <strong>{lowRiskCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><Activity size={20} /></div>
+          <span>平均成功率</span>
+          <strong>{avgSuccess}%</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><PlayCircle size={20} /></div>
+          <span>可执行目标</span>
+          <strong>{servers.length}</strong>
+        </article>
+      </div>
+
+      <div className="scripts-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">自动化</p>
+              <h2>脚本列表</h2>
+            </div>
+          </div>
+          <div className="script-list">
+            {scripts.map((script) => (
+              <button
+                className={selectedScriptId === script.id ? "script-item active" : "script-item"}
+                key={script.id}
+                onClick={() => setSelectedScriptId(script.id)}
+                type="button"
+              >
+                <FileCode2 size={18} />
+                <span>
+                  <strong>{script.name}</strong>
+                  <small>{script.type} · v{script.version}</small>
+                </span>
+                <em className={`risk ${script.riskLevel}`}>{script.riskLevel}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">详情</p>
+              <h2>{detail?.name ?? "脚本详情"}</h2>
+            </div>
+            {detail && <span className={`risk ${detail.riskLevel}`}>{detail.riskLevel}</span>}
+          </div>
+          {loadingDetail && <div className="table-empty">正在加载脚本详情...</div>}
+          {!loadingDetail && detail && (
+            <div className="script-detail">
+              <p>{detail.description}</p>
+              <div className="parameter-grid">
+                {detail.parameters.map((parameter) => (
+                  <div key={parameter.name}>
+                    <strong>{parameter.name}</strong>
+                    <span>{parameter.required ? "required" : "optional"} · 默认 {parameter.defaultValue}</span>
+                  </div>
+                ))}
+              </div>
+              <pre className="code-block">{detail.content}</pre>
+              <div className="run-controls">
+                <label>
+                  执行目标
+                  <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+                    {servers.map((server) => (
+                      <option key={server.id} value={server.id}>
+                        {server.hostname} ({server.environment})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="primary-button" disabled={running || !targetId} onClick={runScript} type="button">
+                  <PlayCircle size={16} /> {running ? "执行中" : "生成执行计划"}
+                </button>
+              </div>
+            </div>
+          )}
+        </article>
+      </div>
+
+      {detail && (
+        <div className="scripts-layout">
+          <article className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">记录</p>
+                <h2>最近执行</h2>
+              </div>
+            </div>
+            <div className="run-list">
+              {detail.lastRuns.map((run) => (
+                <div key={run.id}>
+                  <strong>{run.target}</strong>
+                  <span>{run.status} · {run.durationSeconds}s · {new Date(run.createdAt).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          {runResult && (
+            <article className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">执行</p>
+                  <h2>执行计划</h2>
+                </div>
+                <span className="status">{runResult.status}</span>
+              </div>
+              <p className="diagnosis-summary">
+                {runResult.scriptName} · {runResult.target.hostname} · {runResult.requiresApproval ? "需要审批" : "可直接执行"}
+              </p>
+              <ol className="plan-list">
+                {runResult.plan.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+              <pre className="command-block">{runResult.output}</pre>
+            </article>
+          )}
+        </div>
       )}
     </section>
   );

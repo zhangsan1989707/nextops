@@ -682,6 +682,133 @@ select {
   font-size: 12px;
 }
 
+.scripts-page {
+  display: grid;
+  gap: 16px;
+}
+
+.scripts-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
+  gap: 16px;
+}
+
+.script-list,
+.script-detail,
+.run-list {
+  display: grid;
+  gap: 12px;
+}
+
+.script-item {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.script-item.active,
+.script-item:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.script-item strong,
+.script-item small {
+  display: block;
+}
+
+.script-item small,
+.script-detail p,
+.parameter-grid span,
+.run-list span {
+  color: #667085;
+}
+
+.risk {
+  width: max-content;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #475467;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  padding: 5px 9px;
+}
+
+.risk.low {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.risk.medium {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.parameter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.parameter-grid div,
+.run-list div {
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.parameter-grid strong,
+.parameter-grid span,
+.run-list strong,
+.run-list span {
+  display: block;
+}
+
+.code-block {
+  overflow-x: auto;
+  min-height: 180px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #172033;
+  margin: 0;
+  padding: 14px;
+}
+
+.run-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.run-controls label {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.run-controls select {
+  height: 40px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  padding: 0 10px;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -912,7 +1039,13 @@ select {
 
   .detail-grid,
   .alerts-layout,
+  .scripts-layout,
   .diagnosis-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .parameter-grid,
+  .run-controls {
     grid-template-columns: 1fr;
   }
 

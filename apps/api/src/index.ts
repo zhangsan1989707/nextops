@@ -5,6 +5,7 @@ import {
   createServer,
   getAlert,
   getAlerts,
+  getScript,
   getScripts,
   getServer,
   getServers,
@@ -312,6 +313,74 @@ app.get("/api/scripts", async (_req, res, next) => {
   }
 });
 
+app.get("/api/scripts/:id", async (req, res, next) => {
+  try {
+    const script = await getScript(req.params.id);
+    if (!script) {
+      res.status(404).json({ message: "Script not found" });
+      return;
+    }
+
+    res.json({
+      ...script,
+      description: scriptDescription(script.id),
+      parameters: scriptParameters(script.id),
+      content: scriptContent(script.id),
+      lastRuns: [
+        { id: "run-1042", target: "prod-web-01", status: "success", durationSeconds: 18, createdAt: "2026-05-12T06:20:00.000Z" },
+        { id: "run-1041", target: "prod-db-01", status: "success", durationSeconds: 27, createdAt: "2026-05-12T05:40:00.000Z" }
+      ]
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/scripts/:id/run", async (req, res, next) => {
+  try {
+    const script = await getScript(req.params.id);
+    if (!script) {
+      res.status(404).json({ message: "Script not found" });
+      return;
+    }
+
+    const targetId = String(req.body?.targetId ?? "srv-prod-web-01");
+    const target = await getServer(targetId);
+    if (!target) {
+      res.status(404).json({ message: "Target server not found" });
+      return;
+    }
+
+    const requiresApproval = script.riskLevel !== "low" || target.environment === "production";
+    res.json({
+      taskId: `task-${Date.now().toString(36)}`,
+      scriptId: script.id,
+      scriptName: script.name,
+      target: {
+        id: target.id,
+        hostname: target.hostname,
+        ip: target.ip,
+        environment: target.environment
+      },
+      status: requiresApproval ? "waiting_approval" : "success",
+      riskLevel: script.riskLevel,
+      requiresApproval,
+      plan: [
+        `校验脚本 ${script.name} 的版本和风险等级`,
+        `确认目标服务器 ${target.hostname} 的 Agent/SSH 状态`,
+        "注入参数并生成执行命令",
+        requiresApproval ? "生产或中高风险操作进入审批" : "执行脚本并采集输出",
+        "写入任务记录和审计日志"
+      ],
+      output: requiresApproval
+        ? "任务已生成，等待审批后执行。"
+        : `[${target.hostname}] script completed successfully\\ncpu=${target.cpuUsage}% memory=${target.memoryUsage}% disk=${target.diskUsage}%`
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/slash-commands", (_req, res) => {
   res.json({ items: slashCommands });
 });
@@ -329,6 +398,42 @@ function parseTags(value: unknown): string[] {
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function scriptDescription(id: string): string {
+  const descriptions: Record<string, string> = {
+    "scr-001": "采集 Linux 主机 CPU、内存、磁盘、负载、端口和基础服务状态，适合低风险巡检。",
+    "scr-002": "对 Nginx 配置执行语法检查，通过后 reload 服务。生产环境需要审批。",
+    "scr-003": "查询 PostgreSQL 当前连接数、活跃会话和等待事件，用于数据库连接数异常诊断。"
+  };
+  return descriptions[id] ?? "团队可复用自动化脚本。";
+}
+
+function scriptParameters(id: string): Array<{ name: string; required: boolean; defaultValue: string }> {
+  const parameters: Record<string, Array<{ name: string; required: boolean; defaultValue: string }>> = {
+    "scr-001": [
+      { name: "items", required: false, defaultValue: "cpu,memory,disk,load" },
+      { name: "timeout", required: false, defaultValue: "30s" }
+    ],
+    "scr-002": [
+      { name: "service", required: true, defaultValue: "nginx" },
+      { name: "validate_config", required: false, defaultValue: "true" }
+    ],
+    "scr-003": [
+      { name: "database", required: true, defaultValue: "postgres" },
+      { name: "min_duration", required: false, defaultValue: "30s" }
+    ]
+  };
+  return parameters[id] ?? [];
+}
+
+function scriptContent(id: string): string {
+  const contents: Record<string, string> = {
+    "scr-001": "#!/usr/bin/env bash\\nset -euo pipefail\\nuptime\\ndf -h\\nfree -m\\nps aux --sort=-%cpu | head -10",
+    "scr-002": "#!/usr/bin/env bash\\nset -euo pipefail\\nnginx -t\\nsystemctl reload nginx\\nsystemctl status nginx --no-pager",
+    "scr-003": "select state, count(*) from pg_stat_activity group by state;\\nselect pid, wait_event, query from pg_stat_activity where state = 'active' limit 10;"
+  };
+  return contents[id] ?? "";
 }
 
 initializeDatabase()

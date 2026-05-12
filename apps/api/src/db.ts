@@ -329,6 +329,29 @@ export async function getScripts(): Promise<ScriptRecord[]> {
   }));
 }
 
+export async function getScript(id: string): Promise<ScriptRecord | null> {
+  const result = await pool.query(
+    `
+      select id, name, type, risk_level, version, success_rate
+      from scripts
+      where id = $1
+    `,
+    [id]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    riskLevel: row.risk_level,
+    version: row.version,
+    successRate: row.success_rate
+  };
+}
+
 function mapServer(row: Record<string, unknown>): ServerRecord {
   return {
     id: String(row.id),
