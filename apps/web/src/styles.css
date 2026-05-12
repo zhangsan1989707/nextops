@@ -984,6 +984,54 @@ select {
   padding: 5px 9px;
 }
 
+.tenants-page {
+  display: grid;
+  gap: 16px;
+}
+
+.tenant-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.tenant-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.tenant-card strong,
+.tenant-card span {
+  display: block;
+}
+
+.tenant-card span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.tenant-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tenant-metrics span {
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.tenant-metrics b {
+  display: block;
+  color: #172033;
+  font-size: 18px;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1219,6 +1267,10 @@ select {
   .packages-layout,
   .files-layout,
   .diagnosis-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tenant-grid {
     grid-template-columns: 1fr;
   }
 

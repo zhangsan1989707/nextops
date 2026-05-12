@@ -88,6 +88,36 @@ const managedFiles = [
   }
 ];
 
+const tenants = [
+  {
+    id: "tenant-default",
+    name: "Default Ops",
+    status: "active",
+    servers: 4,
+    alerts: 2,
+    aiDiagnosesToday: 12,
+    quota: "standard"
+  },
+  {
+    id: "tenant-devops",
+    name: "DevOps Lab",
+    status: "active",
+    servers: 8,
+    alerts: 1,
+    aiDiagnosesToday: 7,
+    quota: "standard"
+  },
+  {
+    id: "tenant-private-cloud",
+    name: "Private Cloud",
+    status: "review",
+    servers: 15,
+    alerts: 4,
+    aiDiagnosesToday: 18,
+    quota: "enterprise"
+  }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -538,6 +568,18 @@ app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.get("/api/tenants/summary", (_req, res) => {
+  res.json({
+    items: tenants,
+    totals: {
+      tenants: tenants.length,
+      servers: tenants.reduce((total, tenant) => total + tenant.servers, 0),
+      alerts: tenants.reduce((total, tenant) => total + tenant.alerts, 0),
+      aiDiagnosesToday: tenants.reduce((total, tenant) => total + tenant.aiDiagnosesToday, 0)
+    }
+  });
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

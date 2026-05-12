@@ -149,6 +149,26 @@ type FileTransferPlan = {
   steps: string[];
 };
 
+type TenantItem = {
+  id: string;
+  name: string;
+  status: string;
+  servers: number;
+  alerts: number;
+  aiDiagnosesToday: number;
+  quota: string;
+};
+
+type TenantSummary = {
+  items: TenantItem[];
+  totals: {
+    tenants: number;
+    servers: number;
+    alerts: number;
+    aiDiagnosesToday: number;
+  };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -253,6 +273,7 @@ export function App() {
   const [slashCommands, setSlashCommands] = useState<SlashCommandItem[]>([]);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [tenantSummary, setTenantSummary] = useState<TenantSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -269,14 +290,24 @@ export function App() {
   }, [activePage]);
 
   async function refreshData() {
-    const [nextSummary, nextServers, nextAlerts, nextScripts, nextSlashCommands, nextPackages, nextFiles] = await Promise.all([
+    const [
+      nextSummary,
+      nextServers,
+      nextAlerts,
+      nextScripts,
+      nextSlashCommands,
+      nextPackages,
+      nextFiles,
+      nextTenantSummary
+    ] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
       fetchJson<{ items: AlertItem[] }>("/api/alerts"),
       fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
       fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands"),
       fetchJson<{ items: PackageItem[] }>("/api/packages"),
-      fetchJson<{ items: FileItem[] }>("/api/files")
+      fetchJson<{ items: FileItem[] }>("/api/files"),
+      fetchJson<TenantSummary>("/api/tenants/summary")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -285,6 +316,7 @@ export function App() {
     setSlashCommands(nextSlashCommands.items);
     setPackages(nextPackages.items);
     setFiles(nextFiles.items);
+    setTenantSummary(nextTenantSummary);
   }
 
   useEffect(() => {
@@ -298,6 +330,7 @@ export function App() {
         setSlashCommands([]);
         setPackages([]);
         setFiles([]);
+        setTenantSummary(null);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -403,6 +436,7 @@ export function App() {
         {activePage === "commands" && <Commands commands={slashCommands} />}
         {activePage === "packages" && <Packages packages={packages} servers={servers} />}
         {activePage === "files" && <Files files={files} servers={servers} />}
+        {activePage === "tenants" && <Tenants summary={tenantSummary} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -420,6 +454,7 @@ export function App() {
           activePage !== "commands" &&
           activePage !== "packages" &&
           activePage !== "files" &&
+          activePage !== "tenants" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -1182,6 +1217,63 @@ function Files({ files, servers }: { files: FileItem[]; servers: ServerItem[] })
           </ol>
         </article>
       )}
+    </section>
+  );
+}
+
+function Tenants({ summary }: { summary: TenantSummary | null }) {
+  const tenants = summary?.items ?? [];
+  const totals = summary?.totals;
+
+  return (
+    <section className="tenants-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><Building2 size={20} /></div>
+          <span>租户数</span>
+          <strong>{totals?.tenants ?? "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><Server size={20} /></div>
+          <span>资产数</span>
+          <strong>{totals?.servers ?? "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><Bell size={20} /></div>
+          <span>告警数</span>
+          <strong>{totals?.alerts ?? "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Bot size={20} /></div>
+          <span>AI 诊断</span>
+          <strong>{totals?.aiDiagnosesToday ?? "--"}</strong>
+        </article>
+      </div>
+
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">租户</p>
+            <h2>多租户大盘</h2>
+          </div>
+        </div>
+        <div className="tenant-grid">
+          {tenants.map((tenant) => (
+            <article className="tenant-card" key={tenant.id}>
+              <div>
+                <strong>{tenant.name}</strong>
+                <span>{tenant.id} · {tenant.quota}</span>
+              </div>
+              <span className="status">{tenant.status}</span>
+              <div className="tenant-metrics">
+                <span>服务器 <b>{tenant.servers}</b></span>
+                <span>告警 <b>{tenant.alerts}</b></span>
+                <span>AI <b>{tenant.aiDiagnosesToday}</b></span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </article>
     </section>
   );
 }
