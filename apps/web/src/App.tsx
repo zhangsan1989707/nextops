@@ -111,6 +111,25 @@ type SlashCommandItem = {
   example: string;
 };
 
+type PackageItem = {
+  id: string;
+  name: string;
+  type: string;
+  version: string;
+  size: string;
+  checksum: string;
+  status: string;
+};
+
+type PackageDeployPlan = {
+  packageName: string;
+  version: string;
+  requiresApproval: boolean;
+  riskLevel: string;
+  target: { id: string; hostname: string; environment: string };
+  steps: string[];
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -213,6 +232,7 @@ export function App() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [scripts, setScripts] = useState<ScriptItem[]>([]);
   const [slashCommands, setSlashCommands] = useState<SlashCommandItem[]>([]);
+  const [packages, setPackages] = useState<PackageItem[]>([]);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -229,18 +249,20 @@ export function App() {
   }, [activePage]);
 
   async function refreshData() {
-    const [nextSummary, nextServers, nextAlerts, nextScripts, nextSlashCommands] = await Promise.all([
+    const [nextSummary, nextServers, nextAlerts, nextScripts, nextSlashCommands, nextPackages] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
       fetchJson<{ items: AlertItem[] }>("/api/alerts"),
       fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
-      fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands")
+      fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands"),
+      fetchJson<{ items: PackageItem[] }>("/api/packages")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
     setAlerts(nextAlerts.items);
     setScripts(nextScripts.items);
     setSlashCommands(nextSlashCommands.items);
+    setPackages(nextPackages.items);
   }
 
   useEffect(() => {
@@ -252,6 +274,7 @@ export function App() {
         setAlerts([]);
         setScripts([]);
         setSlashCommands([]);
+        setPackages([]);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -355,6 +378,7 @@ export function App() {
         )}
         {activePage === "scripts" && <Scripts scripts={scripts} servers={servers} />}
         {activePage === "commands" && <Commands commands={slashCommands} />}
+        {activePage === "packages" && <Packages packages={packages} servers={servers} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -370,6 +394,7 @@ export function App() {
           activePage !== "servers" &&
           activePage !== "scripts" &&
           activePage !== "commands" &&
+          activePage !== "packages" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -832,6 +857,151 @@ function Commands({ commands }: { commands: SlashCommandItem[] }) {
           <p className="diagnosis-summary">{response.reply}</p>
           <ol className="plan-list">
             {response.plan.map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        </article>
+      )}
+    </section>
+  );
+}
+
+function Packages({ packages, servers }: { packages: PackageItem[]; servers: ServerItem[] }) {
+  const [selectedPackage, setSelectedPackage] = useState<PackageItem | null>(packages[0] ?? null);
+  const [targetId, setTargetId] = useState(servers[0]?.id ?? "");
+  const [plan, setPlan] = useState<PackageDeployPlan | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPackage && packages.length > 0) {
+      setSelectedPackage(packages[0]);
+    }
+  }, [packages, selectedPackage]);
+
+  useEffect(() => {
+    if (!targetId && servers.length > 0) {
+      setTargetId(servers[0].id);
+    }
+  }, [servers, targetId]);
+
+  async function generatePlan() {
+    if (!selectedPackage || !targetId) {
+      return;
+    }
+    setLoadingPlan(true);
+    try {
+      setPlan(await postJson<PackageDeployPlan>(`/api/packages/${selectedPackage.id}/deploy-plan`, { targetId }));
+    } finally {
+      setLoadingPlan(false);
+    }
+  }
+
+  const releaseCount = packages.filter((item) => item.type === "release").length;
+  const verifiedCount = packages.filter((item) => item.status === "verified").length;
+
+  return (
+    <section className="packages-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><Package size={20} /></div>
+          <span>包总数</span>
+          <strong>{packages.length}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><ShieldCheck size={20} /></div>
+          <span>已验证</span>
+          <strong>{verifiedCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><Boxes size={20} /></div>
+          <span>发布包</span>
+          <strong>{releaseCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Server size={20} /></div>
+          <span>目标服务器</span>
+          <strong>{servers.length}</strong>
+        </article>
+      </div>
+
+      <div className="packages-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">制品</p>
+              <h2>包列表</h2>
+            </div>
+          </div>
+          <div className="package-list">
+            {packages.map((item) => (
+              <button
+                className={selectedPackage?.id === item.id ? "package-item active" : "package-item"}
+                key={item.id}
+                onClick={() => {
+                  setSelectedPackage(item);
+                  setPlan(null);
+                }}
+                type="button"
+              >
+                <Package size={18} />
+                <span>
+                  <strong>{item.name}</strong>
+                  <small>{item.type} · {item.version} · {item.size}</small>
+                </span>
+                <em>{item.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">部署</p>
+              <h2>{selectedPackage?.name ?? "包详情"}</h2>
+            </div>
+            {selectedPackage && <span className="status">{selectedPackage.type}</span>}
+          </div>
+          {selectedPackage && (
+            <div className="package-detail">
+              <dl className="config-list">
+                <div><dt>版本</dt><dd>{selectedPackage.version}</dd></div>
+                <div><dt>大小</dt><dd>{selectedPackage.size}</dd></div>
+                <div><dt>校验</dt><dd>{selectedPackage.checksum}</dd></div>
+                <div><dt>状态</dt><dd>{selectedPackage.status}</dd></div>
+              </dl>
+              <div className="run-controls">
+                <label>
+                  部署目标
+                  <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+                    {servers.map((server) => (
+                      <option key={server.id} value={server.id}>
+                        {server.hostname} ({server.environment})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="primary-button" disabled={loadingPlan || !targetId} onClick={generatePlan} type="button">
+                  <PlayCircle size={16} /> {loadingPlan ? "生成中" : "生成部署计划"}
+                </button>
+              </div>
+            </div>
+          )}
+        </article>
+      </div>
+
+      {plan && (
+        <article className="panel wide-card">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">部署计划</p>
+              <h2>{plan.packageName}@{plan.version}</h2>
+            </div>
+            <span className="status">{plan.requiresApproval ? "requires approval" : plan.riskLevel}</span>
+          </div>
+          <p className="diagnosis-summary">
+            目标：{plan.target.hostname} ({plan.target.environment})
+          </p>
+          <ol className="plan-list">
+            {plan.steps.map((step) => <li key={step}>{step}</li>)}
           </ol>
         </article>
       )}

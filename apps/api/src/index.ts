@@ -28,6 +28,36 @@ const slashCommands = [
   { command: "/deploy", description: "触发部署计划", example: "/deploy order-service --env prod --version 1.8.2" }
 ];
 
+const packages = [
+  {
+    id: "pkg-agent-010",
+    name: "nextops-agent",
+    type: "agent",
+    version: "0.1.0",
+    size: "18.4 MB",
+    checksum: "sha256:7d9e-agent-demo",
+    status: "ready"
+  },
+  {
+    id: "pkg-nginx-conf-184",
+    name: "nginx-conf-bundle",
+    type: "config",
+    version: "1.8.4",
+    size: "240 KB",
+    checksum: "sha256:aa31-nginx-demo",
+    status: "ready"
+  },
+  {
+    id: "pkg-order-service-182",
+    name: "order-service",
+    type: "release",
+    version: "1.8.2",
+    size: "84.1 MB",
+    checksum: "sha256:f91c-order-demo",
+    status: "verified"
+  }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -383,6 +413,50 @@ app.post("/api/scripts/:id/run", async (req, res, next) => {
 
 app.get("/api/slash-commands", (_req, res) => {
   res.json({ items: slashCommands });
+});
+
+app.get("/api/packages", (_req, res) => {
+  res.json({ items: packages });
+});
+
+app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
+  try {
+    const item = packages.find((candidate) => candidate.id === req.params.id);
+    if (!item) {
+      res.status(404).json({ message: "Package not found" });
+      return;
+    }
+
+    const targetId = String(req.body?.targetId ?? "srv-stage-api-01");
+    const target = await getServer(targetId);
+    if (!target) {
+      res.status(404).json({ message: "Target server not found" });
+      return;
+    }
+
+    const requiresApproval = target.environment === "production" || item.type === "release";
+    res.json({
+      packageId: item.id,
+      packageName: item.name,
+      version: item.version,
+      target: {
+        id: target.id,
+        hostname: target.hostname,
+        environment: target.environment
+      },
+      requiresApproval,
+      riskLevel: requiresApproval ? "medium" : "low",
+      steps: [
+        `校验包 ${item.name}@${item.version} 的 checksum`,
+        `确认目标服务器 ${target.hostname} 的磁盘空间和 Agent 状态`,
+        "分发包到目标服务器临时目录",
+        item.type === "agent" ? "执行 Agent 安装/升级脚本" : "执行部署或配置替换动作",
+        "记录包使用记录和部署审计"
+      ]
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
