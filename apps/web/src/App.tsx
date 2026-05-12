@@ -244,6 +244,31 @@ type MemberSummary = {
   };
 };
 
+type TeamItem = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  type: string;
+  status: string;
+  lead: string;
+  memberCount: number;
+  serverCount: number;
+  approvalSla: string;
+  description: string;
+  responsibilities: string[];
+  members: MemberItem[];
+};
+
+type TeamSummary = {
+  items: TeamItem[];
+  totals: {
+    teams: number;
+    active: number;
+    members: number;
+    servers: number;
+  };
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -352,6 +377,7 @@ export function App() {
   const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | null>(null);
   const [modelSummary, setModelSummary] = useState<ModelSummary | null>(null);
   const [memberSummary, setMemberSummary] = useState<MemberSummary | null>(null);
+  const [teamSummary, setTeamSummary] = useState<TeamSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -379,7 +405,8 @@ export function App() {
       nextTenantSummary,
       nextApprovalSummary,
       nextModelSummary,
-      nextMemberSummary
+      nextMemberSummary,
+      nextTeamSummary
     ] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
@@ -391,7 +418,8 @@ export function App() {
       fetchJson<TenantSummary>("/api/tenants/summary"),
       fetchJson<ApprovalSummary>("/api/approvals"),
       fetchJson<ModelSummary>("/api/models"),
-      fetchJson<MemberSummary>("/api/members")
+      fetchJson<MemberSummary>("/api/members"),
+      fetchJson<TeamSummary>("/api/teams/summary")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -404,6 +432,7 @@ export function App() {
     setApprovalSummary(nextApprovalSummary);
     setModelSummary(nextModelSummary);
     setMemberSummary(nextMemberSummary);
+    setTeamSummary(nextTeamSummary);
   }
 
   useEffect(() => {
@@ -421,6 +450,7 @@ export function App() {
         setApprovalSummary(null);
         setModelSummary(null);
         setMemberSummary(null);
+        setTeamSummary(null);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -530,6 +560,7 @@ export function App() {
         {activePage === "approvals" && <Approvals summary={approvalSummary} />}
         {activePage === "models" && <Models summary={modelSummary} />}
         {activePage === "members" && <Members summary={memberSummary} />}
+        {activePage === "teams" && <Teams summary={teamSummary} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -551,6 +582,7 @@ export function App() {
           activePage !== "approvals" &&
           activePage !== "models" &&
           activePage !== "members" &&
+          activePage !== "teams" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -1798,6 +1830,139 @@ function Members({ summary }: { summary: MemberSummary | null }) {
               </div>
               <div className="capability-tags">
                 {selectedMember.permissions.map((permission) => <span key={permission}>{permission}</span>)}
+              </div>
+            </>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function Teams({ summary }: { summary: TeamSummary | null }) {
+  const [teams, setTeams] = useState<TeamItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextTeams = summary?.items ?? [];
+    setTeams(nextTeams);
+    setSelectedId((current) => current ?? nextTeams[0]?.id ?? null);
+  }, [summary]);
+
+  const selectedTeam = teams.find((team) => team.id === selectedId) ?? teams[0];
+  const totals = {
+    teams: teams.length,
+    active: teams.filter((team) => team.status === "active").length,
+    members: teams.reduce((total, team) => total + team.memberCount, 0),
+    servers: teams.reduce((total, team) => total + team.serverCount, 0)
+  };
+
+  async function toggleTeam(teamId: string) {
+    setSubmittingId(teamId);
+    try {
+      const updated = await postJson<TeamItem>(`/api/teams/${teamId}/toggle`, {});
+      setTeams((current) => current.map((team) => (team.id === updated.id ? updated : team)));
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  return (
+    <section className="teams-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><GitBranch size={20} /></div>
+          <span>团队总数</span>
+          <strong>{summary ? totals.teams : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><CheckCircle2 size={20} /></div>
+          <span>活跃团队</span>
+          <strong>{summary ? totals.active : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><Users size={20} /></div>
+          <span>覆盖成员</span>
+          <strong>{summary ? totals.members : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Server size={20} /></div>
+          <span>管理资产</span>
+          <strong>{summary ? totals.servers : "--"}</strong>
+        </article>
+      </div>
+
+      <div className="teams-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">组织</p>
+              <h2>团队结构</h2>
+            </div>
+          </div>
+          <div className="team-tree">
+            {teams.map((team) => (
+              <button
+                className={selectedTeam?.id === team.id ? "team-node active" : "team-node"}
+                key={team.id}
+                onClick={() => setSelectedId(team.id)}
+                style={{ marginLeft: team.parentId ? 18 : 0 }}
+                type="button"
+              >
+                <GitBranch size={16} />
+                <span>
+                  <strong>{team.name}</strong>
+                  <small>{team.lead} · {team.memberCount} 人</small>
+                </span>
+                <em className={`state ${team.status}`}>{team.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel team-detail">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">团队详情</p>
+              <h2>{selectedTeam?.name ?? "暂无团队"}</h2>
+            </div>
+            {selectedTeam && <span className="status">{selectedTeam.type}</span>}
+          </div>
+
+          {selectedTeam && (
+            <>
+              <p className="diagnosis-summary">{selectedTeam.description}</p>
+              <dl className="config-list">
+                <div><dt>负责人</dt><dd>{selectedTeam.lead}</dd></div>
+                <div><dt>上级团队</dt><dd>{teams.find((team) => team.id === selectedTeam.parentId)?.name ?? "无"}</dd></div>
+                <div><dt>成员数</dt><dd>{selectedTeam.memberCount}</dd></div>
+                <div><dt>管理资产</dt><dd>{selectedTeam.serverCount}</dd></div>
+                <div><dt>审批 SLA</dt><dd>{selectedTeam.approvalSla}</dd></div>
+                <div><dt>状态</dt><dd>{selectedTeam.status}</dd></div>
+              </dl>
+              <div className="capability-tags">
+                {selectedTeam.responsibilities.map((responsibility) => <span key={responsibility}>{responsibility}</span>)}
+              </div>
+              <div className="team-members">
+                <strong>团队成员</strong>
+                {(selectedTeam.members.length > 0 ? selectedTeam.members : []).map((member) => (
+                  <div className="team-member" key={member.id}>
+                    <span>{member.name}</span>
+                    <small>{member.role} · {member.status}</small>
+                  </div>
+                ))}
+                {selectedTeam.members.length === 0 && <p className="empty-note">暂无已绑定成员</p>}
+              </div>
+              <div className="detail-actions">
+                <button
+                  className="secondary-button"
+                  disabled={submittingId === selectedTeam.id}
+                  onClick={() => toggleTeam(selectedTeam.id)}
+                  type="button"
+                >
+                  <Settings size={16} /> {selectedTeam.status === "active" ? "进入评审" : "启用团队"}
+                </button>
               </div>
             </>
           )}

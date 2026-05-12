@@ -1233,6 +1233,77 @@ select {
   min-height: 100%;
 }
 
+.teams-page {
+  display: grid;
+  gap: 16px;
+}
+
+.teams-layout {
+  display: grid;
+  grid-template-columns: 0.95fr 1.35fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.team-tree {
+  display: grid;
+  gap: 10px;
+}
+
+.team-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: calc(100% - 18px);
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  text-align: left;
+}
+
+.team-node.active,
+.team-node:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.team-node strong,
+.team-node small {
+  display: block;
+}
+
+.team-node small,
+.empty-note {
+  color: #667085;
+}
+
+.team-detail {
+  min-height: 100%;
+}
+
+.team-members {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.team-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.team-member small {
+  color: #667085;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1470,6 +1541,7 @@ select {
   .approvals-layout,
   .models-layout,
   .members-layout,
+  .teams-layout,
   .diagnosis-grid {
     grid-template-columns: 1fr;
   }

@@ -241,6 +241,61 @@ let members = [
   }
 ];
 
+let teams = [
+  {
+    id: "team-platform",
+    name: "平台工程",
+    parentId: null,
+    type: "root",
+    status: "active",
+    lead: "Leo Hang",
+    memberCount: 6,
+    serverCount: 12,
+    approvalSla: "30m",
+    description: "负责 NextOps 平台、模型网关、自动化编排和核心配置。",
+    responsibilities: ["平台配置", "模型管理", "权限治理", "自动化编排"]
+  },
+  {
+    id: "team-sre",
+    name: "稳定性团队",
+    parentId: "team-platform",
+    type: "sre",
+    status: "active",
+    lead: "SRE Oncall",
+    memberCount: 8,
+    serverCount: 27,
+    approvalSla: "15m",
+    description: "负责生产环境巡检、告警处理、排障与容量趋势分析。",
+    responsibilities: ["告警处理", "巡检", "故障诊断", "容量治理"]
+  },
+  {
+    id: "team-devops",
+    name: "DevOps Lab",
+    parentId: "team-platform",
+    type: "devops",
+    status: "active",
+    lead: "DevOps Reviewer",
+    memberCount: 5,
+    serverCount: 8,
+    approvalSla: "45m",
+    description: "负责 CI/CD 集成、脚本模板、包分发和发布审批。",
+    responsibilities: ["发布审批", "脚本模板", "包管理", "流水线集成"]
+  },
+  {
+    id: "team-cloud",
+    name: "私有云运维",
+    parentId: "team-platform",
+    type: "cloud",
+    status: "review",
+    lead: "Cloud Admin",
+    memberCount: 3,
+    serverCount: 15,
+    approvalSla: "60m",
+    description: "负责私有云接入、云原生资源和多协议插件驱动。",
+    responsibilities: ["私有云接入", "Kubernetes", "插件驱动", "云资源同步"]
+  }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -835,6 +890,37 @@ app.post("/api/members/:id/role", (req, res) => {
 
   members = members.map((item) => (item.id === member.id ? { ...item, role } : item));
   res.json(members.find((item) => item.id === member.id));
+});
+
+app.get("/api/teams/summary", (_req, res) => {
+  res.json({
+    items: teams.map((team) => ({
+      ...team,
+      members: members.filter((member) => member.team === team.name)
+    })),
+    totals: {
+      teams: teams.length,
+      active: teams.filter((team) => team.status === "active").length,
+      members: teams.reduce((total, team) => total + team.memberCount, 0),
+      servers: teams.reduce((total, team) => total + team.serverCount, 0)
+    }
+  });
+});
+
+app.post("/api/teams/:id/toggle", (req, res) => {
+  const team = teams.find((item) => item.id === req.params.id);
+  if (!team) {
+    res.status(404).json({ message: "Team not found" });
+    return;
+  }
+
+  const nextStatus = team.status === "active" ? "review" : "active";
+  teams = teams.map((item) => (item.id === team.id ? { ...item, status: nextStatus } : item));
+  const nextTeam = teams.find((item) => item.id === team.id);
+  res.json({
+    ...nextTeam,
+    members: members.filter((member) => member.team === nextTeam?.name)
+  });
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
