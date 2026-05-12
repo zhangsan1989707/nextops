@@ -809,6 +809,71 @@ select {
   padding: 0 10px;
 }
 
+.commands-page {
+  display: grid;
+  gap: 16px;
+}
+
+.commands-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
+  gap: 16px;
+}
+
+.command-list,
+.command-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.command-item {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.command-item.active,
+.command-item:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.command-item strong,
+.command-item small {
+  display: block;
+}
+
+.command-item small,
+.command-preview p {
+  color: #667085;
+}
+
+.command-preview label {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.command-preview input {
+  height: 42px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  outline: 0;
+  padding: 0 12px;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1040,6 +1105,7 @@ select {
   .detail-grid,
   .alerts-layout,
   .scripts-layout,
+  .commands-layout,
   .diagnosis-grid {
     grid-template-columns: 1fr;
   }

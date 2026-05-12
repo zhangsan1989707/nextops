@@ -105,6 +105,12 @@ type ScriptRunResult = {
   target: { id: string; hostname: string; ip: string; environment: string };
 };
 
+type SlashCommandItem = {
+  command: string;
+  description: string;
+  example: string;
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -206,6 +212,7 @@ export function App() {
   const [servers, setServers] = useState<ServerItem[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [scripts, setScripts] = useState<ScriptItem[]>([]);
+  const [slashCommands, setSlashCommands] = useState<SlashCommandItem[]>([]);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -222,16 +229,18 @@ export function App() {
   }, [activePage]);
 
   async function refreshData() {
-    const [nextSummary, nextServers, nextAlerts, nextScripts] = await Promise.all([
+    const [nextSummary, nextServers, nextAlerts, nextScripts, nextSlashCommands] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
       fetchJson<{ items: AlertItem[] }>("/api/alerts"),
-      fetchJson<{ items: ScriptItem[] }>("/api/scripts")
+      fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
+      fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
     setAlerts(nextAlerts.items);
     setScripts(nextScripts.items);
+    setSlashCommands(nextSlashCommands.items);
   }
 
   useEffect(() => {
@@ -242,6 +251,7 @@ export function App() {
         setServers([]);
         setAlerts([]);
         setScripts([]);
+        setSlashCommands([]);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -344,6 +354,7 @@ export function App() {
           />
         )}
         {activePage === "scripts" && <Scripts scripts={scripts} servers={servers} />}
+        {activePage === "commands" && <Commands commands={slashCommands} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -358,6 +369,7 @@ export function App() {
           activePage !== "chatops" &&
           activePage !== "servers" &&
           activePage !== "scripts" &&
+          activePage !== "commands" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -701,6 +713,127 @@ function Scripts({ scripts, servers }: { scripts: ScriptItem[]; servers: ServerI
             </article>
           )}
         </div>
+      )}
+    </section>
+  );
+}
+
+function Commands({ commands }: { commands: SlashCommandItem[] }) {
+  const [selectedCommand, setSelectedCommand] = useState<SlashCommandItem | null>(commands[0] ?? null);
+  const [draft, setDraft] = useState(commands[0]?.example ?? "");
+  const [response, setResponse] = useState<ChatResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedCommand && commands.length > 0) {
+      setSelectedCommand(commands[0]);
+      setDraft(commands[0].example);
+    }
+  }, [commands, selectedCommand]);
+
+  function selectCommand(command: SlashCommandItem) {
+    setSelectedCommand(command);
+    setDraft(command.example);
+    setResponse(null);
+  }
+
+  async function previewCommand() {
+    if (!draft.trim()) {
+      return;
+    }
+    setLoading(true);
+    try {
+      setResponse(await postJson<ChatResponse>("/api/chatops/message", { message: draft }));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="commands-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><Terminal size={20} /></div>
+          <span>指令数量</span>
+          <strong>{commands.length}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><MessageSquareText size={20} /></div>
+          <span>ChatOps 可用</span>
+          <strong>{commands.length}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><ShieldCheck size={20} /></div>
+          <span>执行前校验</span>
+          <strong>100%</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Bot size={20} /></div>
+          <span>AI 计划生成</span>
+          <strong>on</strong>
+        </article>
+      </div>
+
+      <div className="commands-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Slash</p>
+              <h2>快捷指令</h2>
+            </div>
+          </div>
+          <div className="command-list">
+            {commands.map((command) => (
+              <button
+                className={selectedCommand?.command === command.command ? "command-item active" : "command-item"}
+                key={command.command}
+                onClick={() => selectCommand(command)}
+                type="button"
+              >
+                <Terminal size={18} />
+                <span>
+                  <strong>{command.command}</strong>
+                  <small>{command.description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">预览</p>
+              <h2>{selectedCommand?.command ?? "指令预览"}</h2>
+            </div>
+          </div>
+          <div className="command-preview">
+            <p>{selectedCommand?.description ?? "选择一个指令查看示例。"}</p>
+            <label>
+              指令输入
+              <input value={draft} onChange={(event) => setDraft(event.target.value)} />
+            </label>
+            <button className="primary-button" disabled={loading || !draft.trim()} onClick={previewCommand} type="button">
+              <Bot size={16} /> {loading ? "生成中" : "生成执行计划"}
+            </button>
+          </div>
+        </article>
+      </div>
+
+      {response && (
+        <article className="panel wide-card">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">ChatOps</p>
+              <h2>执行计划</h2>
+            </div>
+            <span className="status">{response.riskLevel}</span>
+          </div>
+          <p className="diagnosis-summary">{response.reply}</p>
+          <ol className="plan-list">
+            {response.plan.map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        </article>
       )}
     </section>
   );
