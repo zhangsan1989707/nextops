@@ -1175,41 +1175,93 @@ select {
 
 .model-form {
   display: grid;
+  gap: 16px;
+}
+
+.model-template-strip {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.template-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.template-button.active,
+.template-button:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+  color: #1f6feb;
+}
+
+.template-button strong,
+.template-button small {
+  display: block;
+}
+
+.template-button small {
+  color: #667085;
+  font-size: 12px;
+}
+
+.model-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.model-form label {
+.model-form .field {
   display: grid;
   gap: 6px;
+}
+
+.model-form .field span,
+.model-form .checkbox-line {
   color: #667085;
   font-size: 13px;
+}
+
+.endpoint-field {
+  grid-column: span 2;
+}
+
+.compact-field {
+  min-width: 0;
 }
 
 .model-form input,
 .model-form select {
   width: 100%;
-}
-
-.model-form .form-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  grid-column: 1 / -1;
+  height: 38px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  padding: 0 10px;
+  outline: 0;
 }
 
 .model-form .checkbox-line {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 38px;
 }
 
 .model-form .checkbox-line input {
   width: auto;
-}
-
-.model-form .primary-button {
-  justify-self: start;
+  height: auto;
+  margin: 0;
 }
 
 .model-test {
@@ -1691,8 +1743,8 @@ select {
   .files-layout,
   .approvals-layout,
   .models-layout,
-  .model-form,
-  .model-form .form-row,
+  .model-template-strip,
+  .model-form-grid,
   .members-layout,
   .teams-layout,
   .roles-layout,

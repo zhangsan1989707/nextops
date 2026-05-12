@@ -1616,6 +1616,7 @@ function Models({ summary }: { summary: ModelSummary | null }) {
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [savingModel, setSavingModel] = useState(false);
   const [testResult, setTestResult] = useState<ModelTestResult | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState("local");
   const [modelDraft, setModelDraft] = useState<ModelDraft>({
     name: "本地 Ollama",
     id: "local-ollama-qwen",
@@ -1714,6 +1715,7 @@ function Models({ summary }: { summary: ModelSummary | null }) {
         setDefault: false
       }
     };
+    setSelectedTemplate(template);
     setModelDraft(templates[template] ?? templates.local);
   }
 
@@ -1864,74 +1866,89 @@ function Models({ summary }: { summary: ModelSummary | null }) {
               <p className="eyebrow">接入</p>
               <h2>添加模型</h2>
             </div>
+            <button className="primary-button" disabled={savingModel} form="model-create-form" type="submit">
+              <Bot size={16} /> {savingModel ? "添加中" : "添加模型"}
+            </button>
           </div>
-          <form className="model-form" onSubmit={createModel}>
-            <label>
-              模型模板
-              <select onChange={(event) => applyModelTemplate(event.target.value)} defaultValue="local">
-                <option value="local">本地模型 / Ollama</option>
-                <option value="deepseek">Deepseek</option>
-                <option value="openai">OpenAI Compatible</option>
-              </select>
-            </label>
-            <label>
-              名称
-              <input value={modelDraft.name} onChange={(event) => updateModelDraft("name", event.target.value)} />
-            </label>
-            <label>
-              模型 ID
-              <input value={modelDraft.id} onChange={(event) => updateModelDraft("id", event.target.value)} />
-            </label>
-            <label>
-              Provider
-              <input value={modelDraft.provider} onChange={(event) => updateModelDraft("provider", event.target.value)} />
-            </label>
-            <label>
-              Endpoint
-              <input value={modelDraft.endpoint} onChange={(event) => updateModelDraft("endpoint", event.target.value)} />
-            </label>
-            <label>
-              API Key
-              <input
-                autoComplete="off"
-                placeholder="本地模型可留空"
-                type="password"
-                value={modelDraft.apiKey}
-                onChange={(event) => updateModelDraft("apiKey", event.target.value)}
-              />
-            </label>
-            <div className="form-row">
-              <label>
-                类型
+          <form className="model-form" id="model-create-form" onSubmit={createModel}>
+            <div className="model-template-strip" role="group" aria-label="模型模板">
+              {[
+                { key: "local", label: "本地模型", meta: "Ollama / vLLM", icon: Server },
+                { key: "deepseek", label: "Deepseek", meta: "API Compatible", icon: Bot },
+                { key: "openai", label: "OpenAI", meta: "Compatible", icon: MessageSquareText }
+              ].map((template) => {
+                const Icon = template.icon;
+                return (
+                  <button
+                    className={selectedTemplate === template.key ? "template-button active" : "template-button"}
+                    key={template.key}
+                    onClick={() => applyModelTemplate(template.key)}
+                    type="button"
+                  >
+                    <Icon size={16} />
+                    <span>
+                      <strong>{template.label}</strong>
+                      <small>{template.meta}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="model-form-grid">
+              <label className="field">
+                <span>名称</span>
+                <input value={modelDraft.name} onChange={(event) => updateModelDraft("name", event.target.value)} />
+              </label>
+              <label className="field">
+                <span>模型 ID</span>
+                <input value={modelDraft.id} onChange={(event) => updateModelDraft("id", event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Provider</span>
+                <input value={modelDraft.provider} onChange={(event) => updateModelDraft("provider", event.target.value)} />
+              </label>
+              <label className="field endpoint-field">
+                <span>Endpoint</span>
+                <input value={modelDraft.endpoint} onChange={(event) => updateModelDraft("endpoint", event.target.value)} />
+              </label>
+              <label className="field">
+                <span>API Key</span>
+                <input
+                  autoComplete="off"
+                  placeholder="本地模型可留空"
+                  type="password"
+                  value={modelDraft.apiKey}
+                  onChange={(event) => updateModelDraft("apiKey", event.target.value)}
+                />
+              </label>
+              <label className="field compact-field">
+                <span>类型</span>
                 <select value={modelDraft.type} onChange={(event) => updateModelDraft("type", event.target.value)}>
                   <option value="chat">chat</option>
                   <option value="embedding">embedding</option>
                 </select>
               </label>
-              <label>
-                上下文
+              <label className="field compact-field">
+                <span>上下文</span>
                 <input value={modelDraft.contextWindow} onChange={(event) => updateModelDraft("contextWindow", event.target.value)} />
               </label>
-              <label>
-                成本
+              <label className="field compact-field">
+                <span>成本</span>
                 <select value={modelDraft.costLevel} onChange={(event) => updateModelDraft("costLevel", event.target.value)}>
                   <option value="low">low</option>
                   <option value="medium">medium</option>
                   <option value="high">high</option>
                 </select>
               </label>
+              <label className="checkbox-line">
+                <input
+                  checked={modelDraft.setDefault}
+                  onChange={(event) => updateModelDraft("setDefault", event.target.checked)}
+                  type="checkbox"
+                />
+                <span>设为默认模型</span>
+              </label>
             </div>
-            <label className="checkbox-line">
-              <input
-                checked={modelDraft.setDefault}
-                onChange={(event) => updateModelDraft("setDefault", event.target.checked)}
-                type="checkbox"
-              />
-              设为默认模型
-            </label>
-            <button className="primary-button" disabled={savingModel} type="submit">
-              <Bot size={16} /> {savingModel ? "添加中" : "添加模型"}
-            </button>
           </form>
         </article>
       </div>
