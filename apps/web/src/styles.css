@@ -1212,6 +1212,36 @@ select {
   justify-self: start;
 }
 
+.model-test {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  margin-top: 16px;
+  padding: 12px;
+}
+
+.model-test.ok {
+  border-color: #b7ebc6;
+  background: #f2fbf5;
+}
+
+.model-test.warning {
+  border-color: #ffe2a8;
+  background: #fffaf0;
+}
+
+.model-test span,
+.model-test li {
+  color: #667085;
+  font-size: 13px;
+}
+
+.model-test ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .capability-tags {
   display: flex;
   flex-wrap: wrap;

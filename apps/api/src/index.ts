@@ -990,6 +990,36 @@ app.post("/api/models/:id/toggle", (req, res) => {
   res.json(toPublicModel(aiModels.find((item) => item.id === model.id)));
 });
 
+app.post("/api/models/:id/test", (req, res) => {
+  const model = aiModels.find((item) => item.id === req.params.id);
+  if (!model) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+
+  const keyConfigured = Boolean((model.apiKeyEnvName && process.env[model.apiKeyEnvName]) || modelSecrets.has(model.id));
+  const isLocal = model.provider.toLowerCase().includes("local") || model.endpoint.includes("localhost");
+  const warnings = [
+    !keyConfigured && !isLocal ? "未配置 API Key，远程模型调用会失败。" : "",
+    model.status !== "enabled" ? "模型当前未启用。" : ""
+  ].filter(Boolean);
+
+  res.json({
+    modelId: model.id,
+    ok: warnings.length === 0,
+    status: warnings.length === 0 ? "reachable" : "attention",
+    latencyMs: model.latencyMs,
+    checkedAt: new Date().toISOString(),
+    checks: [
+      `Endpoint: ${model.endpoint}`,
+      `Provider: ${model.provider}`,
+      keyConfigured ? "API Key: configured" : isLocal ? "API Key: not required for local model" : "API Key: missing",
+      `Model status: ${model.status}`
+    ],
+    warnings
+  });
+});
+
 app.get("/api/members", (_req, res) => {
   res.json({
     items: members,

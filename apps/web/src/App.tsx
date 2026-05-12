@@ -236,6 +236,16 @@ type ModelDraft = {
   setDefault: boolean;
 };
 
+type ModelTestResult = {
+  modelId: string;
+  ok: boolean;
+  status: string;
+  latencyMs: number;
+  checkedAt: string;
+  checks: string[];
+  warnings: string[];
+};
+
 type MemberItem = {
   id: string;
   name: string;
@@ -1605,6 +1615,7 @@ function Models({ summary }: { summary: ModelSummary | null }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [savingModel, setSavingModel] = useState(false);
+  const [testResult, setTestResult] = useState<ModelTestResult | null>(null);
   const [modelDraft, setModelDraft] = useState<ModelDraft>({
     name: "本地 Ollama",
     id: "local-ollama-qwen",
@@ -1653,6 +1664,15 @@ function Models({ summary }: { summary: ModelSummary | null }) {
         }
         return nextModels;
       });
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  async function testModel(modelId: string) {
+    setSubmittingId(modelId);
+    try {
+      setTestResult(await postJson<ModelTestResult>(`/api/models/${modelId}/test`, {}));
     } finally {
       setSubmittingId(null);
     }
@@ -1815,7 +1835,25 @@ function Models({ summary }: { summary: ModelSummary | null }) {
                 >
                   <Settings size={16} /> {selectedModel.status === "enabled" ? "停用模型" : "启用模型"}
                 </button>
+                <button
+                  className="secondary-button"
+                  disabled={submittingId === selectedModel.id}
+                  onClick={() => testModel(selectedModel.id)}
+                  type="button"
+                >
+                  <Activity size={16} /> 测试连接
+                </button>
               </div>
+              {testResult?.modelId === selectedModel.id && (
+                <div className={testResult.ok ? "model-test ok" : "model-test warning"}>
+                  <strong>{testResult.ok ? "连接可用" : "需要检查"} · {testResult.latencyMs}ms</strong>
+                  <span>{new Date(testResult.checkedAt).toLocaleString()}</span>
+                  <ul>
+                    {testResult.checks.map((check) => <li key={check}>{check}</li>)}
+                    {testResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </article>
