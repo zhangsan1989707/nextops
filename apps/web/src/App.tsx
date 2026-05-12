@@ -434,6 +434,7 @@ export function App() {
   const [loadingChat, setLoadingChat] = useState(false);
   const [loadingServers, setLoadingServers] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const activeLabel = useMemo(() => {
     for (const group of menuGroups) {
@@ -570,9 +571,43 @@ export function App() {
               <Search size={16} />
               <input placeholder="搜索服务器、告警、脚本或指令" />
             </div>
-            <button className="icon-button" type="button" title="系统设置">
-              <Settings size={18} />
-            </button>
+            <div className="settings-menu">
+              <button
+                aria-expanded={settingsOpen}
+                aria-label="系统设置"
+                className="icon-button"
+                onClick={() => setSettingsOpen((open) => !open)}
+                type="button"
+                title="系统设置"
+              >
+                <Settings size={18} />
+              </button>
+              {settingsOpen && (
+                <div className="settings-popover">
+                  {[
+                    { key: "models", label: "模型管理", icon: Bot },
+                    { key: "members", label: "成员管理", icon: Users },
+                    { key: "teams", label: "团队结构", icon: GitBranch },
+                    { key: "roles", label: "权限与角色", icon: KeyRound }
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => {
+                          setActivePage(item.key);
+                          setSettingsOpen(false);
+                        }}
+                        type="button"
+                      >
+                        <Icon size={16} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
