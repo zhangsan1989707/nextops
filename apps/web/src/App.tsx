@@ -130,6 +130,25 @@ type PackageDeployPlan = {
   steps: string[];
 };
 
+type FileItem = {
+  id: string;
+  name: string;
+  path: string;
+  type: string;
+  size: string;
+  source: string;
+  updatedAt: string;
+};
+
+type FileTransferPlan = {
+  fileName: string;
+  mode: string;
+  riskLevel: string;
+  requiresApproval: boolean;
+  target: { id: string; hostname: string; environment: string };
+  steps: string[];
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -233,6 +252,7 @@ export function App() {
   const [scripts, setScripts] = useState<ScriptItem[]>([]);
   const [slashCommands, setSlashCommands] = useState<SlashCommandItem[]>([]);
   const [packages, setPackages] = useState<PackageItem[]>([]);
+  const [files, setFiles] = useState<FileItem[]>([]);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -249,13 +269,14 @@ export function App() {
   }, [activePage]);
 
   async function refreshData() {
-    const [nextSummary, nextServers, nextAlerts, nextScripts, nextSlashCommands, nextPackages] = await Promise.all([
+    const [nextSummary, nextServers, nextAlerts, nextScripts, nextSlashCommands, nextPackages, nextFiles] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
       fetchJson<{ items: ServerItem[] }>("/api/servers"),
       fetchJson<{ items: AlertItem[] }>("/api/alerts"),
       fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
       fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands"),
-      fetchJson<{ items: PackageItem[] }>("/api/packages")
+      fetchJson<{ items: PackageItem[] }>("/api/packages"),
+      fetchJson<{ items: FileItem[] }>("/api/files")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
@@ -263,6 +284,7 @@ export function App() {
     setScripts(nextScripts.items);
     setSlashCommands(nextSlashCommands.items);
     setPackages(nextPackages.items);
+    setFiles(nextFiles.items);
   }
 
   useEffect(() => {
@@ -275,6 +297,7 @@ export function App() {
         setScripts([]);
         setSlashCommands([]);
         setPackages([]);
+        setFiles([]);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -379,6 +402,7 @@ export function App() {
         {activePage === "scripts" && <Scripts scripts={scripts} servers={servers} />}
         {activePage === "commands" && <Commands commands={slashCommands} />}
         {activePage === "packages" && <Packages packages={packages} servers={servers} />}
+        {activePage === "files" && <Files files={files} servers={servers} />}
         {activePage === "server-detail" && selectedServerId && (
           <ServerDetail
             serverId={selectedServerId}
@@ -395,6 +419,7 @@ export function App() {
           activePage !== "scripts" &&
           activePage !== "commands" &&
           activePage !== "packages" &&
+          activePage !== "files" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
@@ -999,6 +1024,158 @@ function Packages({ packages, servers }: { packages: PackageItem[]; servers: Ser
           </div>
           <p className="diagnosis-summary">
             目标：{plan.target.hostname} ({plan.target.environment})
+          </p>
+          <ol className="plan-list">
+            {plan.steps.map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        </article>
+      )}
+    </section>
+  );
+}
+
+function Files({ files, servers }: { files: FileItem[]; servers: ServerItem[] }) {
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(files[0] ?? null);
+  const [targetId, setTargetId] = useState(servers[0]?.id ?? "");
+  const [mode, setMode] = useState("push");
+  const [plan, setPlan] = useState<FileTransferPlan | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState(false);
+
+  useEffect(() => {
+    if (!selectedFile && files.length > 0) {
+      setSelectedFile(files[0]);
+    }
+  }, [files, selectedFile]);
+
+  useEffect(() => {
+    if (!targetId && servers.length > 0) {
+      setTargetId(servers[0].id);
+    }
+  }, [servers, targetId]);
+
+  async function generatePlan() {
+    if (!selectedFile || !targetId) {
+      return;
+    }
+    setLoadingPlan(true);
+    try {
+      setPlan(await postJson<FileTransferPlan>(`/api/files/${selectedFile.id}/transfer-plan`, { targetId, mode }));
+    } finally {
+      setLoadingPlan(false);
+    }
+  }
+
+  const logCount = files.filter((file) => file.type === "log").length;
+  const scriptCount = files.filter((file) => file.type === "script").length;
+
+  return (
+    <section className="files-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon blue"><FileText size={20} /></div>
+          <span>文件总数</span>
+          <strong>{files.length}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><FileText size={20} /></div>
+          <span>日志文件</span>
+          <strong>{logCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><FileCode2 size={20} /></div>
+          <span>脚本文件</span>
+          <strong>{scriptCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Server size={20} /></div>
+          <span>服务器</span>
+          <strong>{servers.length}</strong>
+        </article>
+      </div>
+
+      <div className="files-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">文件</p>
+              <h2>文件列表</h2>
+            </div>
+          </div>
+          <div className="file-list">
+            {files.map((file) => (
+              <button
+                className={selectedFile?.id === file.id ? "file-item active" : "file-item"}
+                key={file.id}
+                onClick={() => {
+                  setSelectedFile(file);
+                  setPlan(null);
+                }}
+                type="button"
+              >
+                <FileText size={18} />
+                <span>
+                  <strong>{file.name}</strong>
+                  <small>{file.type} · {file.size} · {file.source}</small>
+                </span>
+                <em>{file.type}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">传输</p>
+              <h2>{selectedFile?.name ?? "文件详情"}</h2>
+            </div>
+          </div>
+          {selectedFile && (
+            <div className="file-detail">
+              <dl className="config-list">
+                <div><dt>路径</dt><dd>{selectedFile.path}</dd></div>
+                <div><dt>来源</dt><dd>{selectedFile.source}</dd></div>
+                <div><dt>大小</dt><dd>{selectedFile.size}</dd></div>
+                <div><dt>更新时间</dt><dd>{new Date(selectedFile.updatedAt).toLocaleString()}</dd></div>
+              </dl>
+              <div className="run-controls">
+                <label>
+                  操作模式
+                  <select value={mode} onChange={(event) => setMode(event.target.value)}>
+                    <option value="push">分发到服务器</option>
+                    <option value="pull">从服务器拉取</option>
+                  </select>
+                </label>
+                <label>
+                  目标服务器
+                  <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+                    {servers.map((server) => (
+                      <option key={server.id} value={server.id}>
+                        {server.hostname} ({server.environment})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="primary-button" disabled={loadingPlan || !targetId} onClick={generatePlan} type="button">
+                  <PlayCircle size={16} /> {loadingPlan ? "生成中" : "生成传输计划"}
+                </button>
+              </div>
+            </div>
+          )}
+        </article>
+      </div>
+
+      {plan && (
+        <article className="panel wide-card">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">文件操作</p>
+              <h2>{plan.fileName}</h2>
+            </div>
+            <span className="status">{plan.requiresApproval ? "requires approval" : plan.riskLevel}</span>
+          </div>
+          <p className="diagnosis-summary">
+            {plan.mode === "pull" ? "拉取" : "分发"} · {plan.target.hostname} ({plan.target.environment})
           </p>
           <ol className="plan-list">
             {plan.steps.map((step) => <li key={step}>{step}</li>)}

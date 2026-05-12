@@ -58,6 +58,36 @@ const packages = [
   }
 ];
 
+const managedFiles = [
+  {
+    id: "file-nginx-access",
+    name: "nginx-access-sample.log",
+    path: "/var/log/nginx/access.log",
+    type: "log",
+    size: "12.8 MB",
+    source: "prod-web-01",
+    updatedAt: "2026-05-12T06:42:00.000Z"
+  },
+  {
+    id: "file-agent-install",
+    name: "install-agent.sh",
+    path: "/opt/nextops/install-agent.sh",
+    type: "script",
+    size: "8 KB",
+    source: "nextops",
+    updatedAt: "2026-05-12T05:10:00.000Z"
+  },
+  {
+    id: "file-db-report",
+    name: "postgres-diagnosis.txt",
+    path: "/tmp/postgres-diagnosis.txt",
+    type: "report",
+    size: "32 KB",
+    source: "prod-db-01",
+    updatedAt: "2026-05-12T04:35:00.000Z"
+  }
+];
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
@@ -453,6 +483,57 @@ app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
         item.type === "agent" ? "执行 Agent 安装/升级脚本" : "执行部署或配置替换动作",
         "记录包使用记录和部署审计"
       ]
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/files", (_req, res) => {
+  res.json({ items: managedFiles });
+});
+
+app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
+  try {
+    const file = managedFiles.find((candidate) => candidate.id === req.params.id);
+    if (!file) {
+      res.status(404).json({ message: "File not found" });
+      return;
+    }
+
+    const targetId = String(req.body?.targetId ?? "srv-stage-api-01");
+    const mode = String(req.body?.mode ?? "push");
+    const target = await getServer(targetId);
+    if (!target) {
+      res.status(404).json({ message: "Target server not found" });
+      return;
+    }
+
+    res.json({
+      fileId: file.id,
+      fileName: file.name,
+      mode,
+      target: {
+        id: target.id,
+        hostname: target.hostname,
+        environment: target.environment
+      },
+      riskLevel: file.type === "script" || target.environment === "production" ? "medium" : "low",
+      requiresApproval: target.environment === "production",
+      steps:
+        mode === "pull"
+          ? [
+              `通过 Agent/SSH 从 ${target.hostname} 读取 ${file.path}`,
+              "计算文件大小和 checksum",
+              "上传到 NextOps 文件区",
+              "写入文件操作审计"
+            ]
+          : [
+              `校验文件 ${file.name} 的 checksum 和权限`,
+              `分发到 ${target.hostname}:${file.path}`,
+              "设置文件 owner/mode",
+              "写入文件操作审计"
+            ]
     });
   } catch (error) {
     next(error);

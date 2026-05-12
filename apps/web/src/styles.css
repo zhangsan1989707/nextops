@@ -929,6 +929,61 @@ select {
   padding: 5px 9px;
 }
 
+.files-page {
+  display: grid;
+  gap: 16px;
+}
+
+.files-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+
+.file-list,
+.file-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.file-item {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 66px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.file-item.active,
+.file-item:hover {
+  border-color: #9fc5ff;
+  background: #f6f9ff;
+}
+
+.file-item strong,
+.file-item small {
+  display: block;
+}
+
+.file-item small {
+  color: #667085;
+}
+
+.file-item em {
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #475467;
+  font-size: 12px;
+  font-style: normal;
+  padding: 5px 9px;
+}
+
 .server-detail {
   display: grid;
   gap: 16px;
@@ -1162,6 +1217,7 @@ select {
   .scripts-layout,
   .commands-layout,
   .packages-layout,
+  .files-layout,
   .diagnosis-grid {
     grid-template-columns: 1fr;
   }
