@@ -68,6 +68,16 @@ type ServerDetailData = ServerItem & {
   alertRules: Array<{ id: string; name: string; metric: string; threshold: number; enabled: boolean }>;
 };
 
+type AlertItem = {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  source: string;
+  serverId: string;
+  triggeredAt: string;
+};
+
 type ChatResponse = {
   intent: string;
   riskLevel: string;
@@ -97,6 +107,13 @@ type DiagnosisReport = {
   evidence: string[];
   possibleCauses: string[];
   repairPlan: string[];
+};
+
+type AlertDiagnosisReport = DiagnosisReport & {
+  alertId: string;
+  serverId: string;
+  impact: string;
+  timeline: Array<{ time: string; event: string }>;
 };
 
 const menuGroups = [
@@ -160,6 +177,7 @@ export function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [servers, setServers] = useState<ServerItem[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -176,12 +194,14 @@ export function App() {
   }, [activePage]);
 
   async function refreshData() {
-    const [nextSummary, nextServers] = await Promise.all([
+    const [nextSummary, nextServers, nextAlerts] = await Promise.all([
       fetchJson<DashboardSummary>("/api/dashboard/summary"),
-      fetchJson<{ items: ServerItem[] }>("/api/servers")
+      fetchJson<{ items: ServerItem[] }>("/api/servers"),
+      fetchJson<{ items: AlertItem[] }>("/api/alerts")
     ]);
     setSummary(nextSummary);
     setServers(nextServers.items);
+    setAlerts(nextAlerts.items);
   }
 
   useEffect(() => {
@@ -190,6 +210,7 @@ export function App() {
       .catch(() => {
         setSummary(null);
         setServers([]);
+        setAlerts([]);
       })
       .finally(() => setLoadingServers(false));
   }, []);
@@ -270,6 +291,16 @@ export function App() {
             loading={loadingChat}
           />
         )}
+        {activePage === "alerts" && (
+          <Alerts
+            alerts={alerts}
+            servers={servers}
+            onOpenServer={(serverId) => {
+              setSelectedServerId(serverId);
+              setActivePage("server-detail");
+            }}
+          />
+        )}
         {activePage === "servers" && (
           <Servers
             servers={servers}
@@ -291,11 +322,171 @@ export function App() {
           />
         )}
         {activePage !== "dashboard" &&
+          activePage !== "alerts" &&
           activePage !== "chatops" &&
           activePage !== "servers" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
       </main>
     </div>
+  );
+}
+
+function Alerts({
+  alerts,
+  servers,
+  onOpenServer
+}: {
+  alerts: AlertItem[];
+  servers: ServerItem[];
+  onOpenServer: (serverId: string) => void;
+}) {
+  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(alerts[0] ?? null);
+  const [diagnosis, setDiagnosis] = useState<AlertDiagnosisReport | null>(null);
+  const [loadingDiagnosis, setLoadingDiagnosis] = useState(false);
+
+  useEffect(() => {
+    if (!selectedAlert && alerts.length > 0) {
+      setSelectedAlert(alerts[0]);
+    }
+  }, [alerts, selectedAlert]);
+
+  const criticalCount = alerts.filter((alert) => alert.severity === "critical").length;
+  const openCount = alerts.filter((alert) => alert.status === "open").length;
+  const acknowledgedCount = alerts.filter((alert) => alert.status === "acknowledged").length;
+
+  async function diagnose(alert: AlertItem) {
+    setSelectedAlert(alert);
+    setLoadingDiagnosis(true);
+    try {
+      setDiagnosis(await postJson<AlertDiagnosisReport>(`/api/alerts/${alert.id}/diagnose`, {}));
+    } finally {
+      setLoadingDiagnosis(false);
+    }
+  }
+
+  function serverName(serverId: string) {
+    return servers.find((server) => server.id === serverId)?.hostname ?? serverId;
+  }
+
+  return (
+    <section className="alerts-page">
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon amber"><Bell size={20} /></div>
+          <span>告警总数</span>
+          <strong>{alerts.length}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon pink"><Bell size={20} /></div>
+          <span>Critical</span>
+          <strong>{criticalCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon blue"><Activity size={20} /></div>
+          <span>待处理</span>
+          <strong>{openCount}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><ShieldCheck size={20} /></div>
+          <span>处理中</span>
+          <strong>{acknowledgedCount}</strong>
+        </article>
+      </div>
+
+      <div className="alerts-layout">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">事件</p>
+              <h2>告警列表</h2>
+            </div>
+          </div>
+          <div className="alert-list">
+            {alerts.map((alert) => (
+              <button
+                className={selectedAlert?.id === alert.id ? "alert-item active" : "alert-item"}
+                key={alert.id}
+                onClick={() => {
+                  setSelectedAlert(alert);
+                  setDiagnosis(null);
+                }}
+                type="button"
+              >
+                <span className={`severity ${alert.severity}`}>{alert.severity}</span>
+                <strong>{alert.title}</strong>
+                <small>{serverName(alert.serverId)} · {alert.source}</small>
+                <em>{alert.status}</em>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">处置</p>
+              <h2>告警详情</h2>
+            </div>
+          </div>
+          {selectedAlert ? (
+            <div className="alert-detail">
+              <div>
+                <span className={`severity ${selectedAlert.severity}`}>{selectedAlert.severity}</span>
+                <h3>{selectedAlert.title}</h3>
+                <p>{new Date(selectedAlert.triggeredAt).toLocaleString()} · {selectedAlert.source}</p>
+              </div>
+              <dl className="config-list">
+                <div><dt>状态</dt><dd>{selectedAlert.status}</dd></div>
+                <div><dt>关联服务器</dt><dd>{serverName(selectedAlert.serverId)}</dd></div>
+                <div><dt>事件 ID</dt><dd>{selectedAlert.id}</dd></div>
+              </dl>
+              <div className="detail-actions">
+                <button className="secondary-button" onClick={() => onOpenServer(selectedAlert.serverId)} type="button">
+                  <Server size={16} /> 查看服务器
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={loadingDiagnosis}
+                  onClick={() => diagnose(selectedAlert)}
+                  type="button"
+                >
+                  <Bot size={16} /> {loadingDiagnosis ? "诊断中" : "AI 诊断"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="table-empty">暂无告警</div>
+          )}
+        </article>
+      </div>
+
+      {diagnosis && (
+        <article className="panel wide-card">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">AI 诊断</p>
+              <h2>告警诊断报告</h2>
+            </div>
+            <span className="status">{diagnosis.alertId}</span>
+          </div>
+          <p className="diagnosis-summary">{diagnosis.summary}</p>
+          <p className="diagnosis-impact">{diagnosis.impact}</p>
+          <div className="timeline">
+            {diagnosis.timeline.map((item) => (
+              <div key={`${item.time}-${item.event}`}>
+                <span>{new Date(item.time).toLocaleTimeString()}</span>
+                <strong>{item.event}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="diagnosis-grid">
+            <ListBlock title="证据链" items={diagnosis.evidence} />
+            <ListBlock title="可能原因" items={diagnosis.possibleCauses} />
+            <ListBlock title="修复方案" items={diagnosis.repairPlan} />
+          </div>
+        </article>
+      )}
+    </section>
   );
 }
 

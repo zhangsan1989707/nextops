@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import {
   createServer,
+  getAlert,
   getAlerts,
   getScripts,
   getServer,
@@ -240,6 +241,64 @@ app.post("/api/servers/:id/diagnose", async (req, res, next) => {
 app.get("/api/alerts", async (_req, res, next) => {
   try {
     res.json({ items: await getAlerts() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/alerts/:id", async (req, res, next) => {
+  try {
+    const alert = await getAlert(req.params.id);
+    if (!alert) {
+      res.status(404).json({ message: "Alert not found" });
+      return;
+    }
+    res.json(alert);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/alerts/:id/diagnose", async (req, res, next) => {
+  try {
+    const alert = await getAlert(req.params.id);
+    if (!alert) {
+      res.status(404).json({ message: "Alert not found" });
+      return;
+    }
+
+    const server = await getServer(alert.serverId);
+    if (!server) {
+      res.status(404).json({ message: "Related server not found" });
+      return;
+    }
+
+    const isCritical = alert.severity === "critical";
+    res.json({
+      alertId: alert.id,
+      serverId: server.id,
+      summary: `${alert.title}。AI 已关联 ${server.hostname} 的指标、日志来源和资产配置，建议按影响范围优先处理。`,
+      impact: isCritical ? "可能影响生产服务稳定性，需要尽快确认。" : "当前影响可控，建议在观察窗口内处理。",
+      timeline: [
+        { time: alert.triggeredAt, event: "告警触发" },
+        { time: new Date().toISOString(), event: "AI 诊断生成" }
+      ],
+      evidence: [
+        `告警级别：${alert.severity}`,
+        `告警来源：${alert.source}`,
+        `关联服务器：${server.hostname} (${server.ip})`,
+        `CPU ${server.cpuUsage}% / 内存 ${server.memoryUsage}% / 磁盘 ${server.diskUsage}%`
+      ],
+      possibleCauses: isCritical
+        ? ["资源使用持续升高", "服务进程异常占用", "最近发布或定时任务引发压力", "日志或缓存文件堆积"]
+        : ["短时流量波动", "局部日志错误率升高", "阈值策略需要校准"],
+      repairPlan: [
+        "进入服务器详情查看 15 分钟性能趋势",
+        "检查关键日志和 top 进程，确认是否有异常任务",
+        "必要时执行巡检脚本或生成 Agent 部署计划",
+        "处理后持续观察并关闭或备注告警"
+      ]
+    });
   } catch (error) {
     next(error);
   }

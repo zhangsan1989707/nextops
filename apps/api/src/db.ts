@@ -289,6 +289,30 @@ export async function getAlerts(): Promise<AlertRecord[]> {
   }));
 }
 
+export async function getAlert(id: string): Promise<AlertRecord | null> {
+  const result = await pool.query(
+    `
+      select id, title, severity, status, source, server_id, triggered_at
+      from alerts
+      where id = $1
+    `,
+    [id]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    title: row.title,
+    severity: row.severity,
+    status: row.status,
+    source: row.source,
+    serverId: row.server_id,
+    triggeredAt: new Date(row.triggered_at).toISOString()
+  };
+}
+
 export async function getScripts(): Promise<ScriptRecord[]> {
   const result = await pool.query(`
     select id, name, type, risk_level, version, success_rate
@@ -323,4 +347,3 @@ function mapServer(row: Record<string, unknown>): ServerRecord {
     tags: Array.isArray(row.tags) ? row.tags.map(String) : []
   };
 }
-
