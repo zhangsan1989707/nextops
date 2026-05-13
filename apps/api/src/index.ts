@@ -9,14 +9,20 @@ import {
   getApprovalTickets,
   getAlert,
   getAlerts,
+  getManagedFile,
+  getManagedFiles,
   getMembers,
+  getPackage,
+  getPackages,
   getPermissions,
   getRoles,
   getScript,
   getScripts,
   getServer,
   getServers,
+  getSlashCommands,
   getTeams,
+  getTenants,
   initializeDatabase,
   reviewApprovalTicket,
   setDefaultAiModel,
@@ -38,110 +44,13 @@ const port = Number(process.env.PORT ?? 4000);
 app.use(cors());
 app.use(express.json());
 
-const slashCommands = [
-  { command: "/ssh", description: "打开服务器 Web SSH", example: "/ssh 10.0.1.21 --port 22" },
-  { command: "/check", description: "发起服务器巡检", example: "/check prod-web --items cpu,memory,disk" },
-  { command: "/diagnose", description: "发起 AI 诊断", example: "/diagnose alert alt-001" },
-  { command: "/deploy", description: "触发部署计划", example: "/deploy order-service --env prod --version 1.8.2" }
-];
-
-const packages = [
-  {
-    id: "pkg-agent-010",
-    name: "nextops-agent",
-    type: "agent",
-    version: "0.1.0",
-    size: "18.4 MB",
-    checksum: "sha256:7d9e-agent-demo",
-    status: "ready"
-  },
-  {
-    id: "pkg-nginx-conf-184",
-    name: "nginx-conf-bundle",
-    type: "config",
-    version: "1.8.4",
-    size: "240 KB",
-    checksum: "sha256:aa31-nginx-demo",
-    status: "ready"
-  },
-  {
-    id: "pkg-order-service-182",
-    name: "order-service",
-    type: "release",
-    version: "1.8.2",
-    size: "84.1 MB",
-    checksum: "sha256:f91c-order-demo",
-    status: "verified"
-  }
-];
-
-const managedFiles = [
-  {
-    id: "file-nginx-access",
-    name: "nginx-access-sample.log",
-    path: "/var/log/nginx/access.log",
-    type: "log",
-    size: "12.8 MB",
-    source: "prod-web-01",
-    updatedAt: "2026-05-12T06:42:00.000Z"
-  },
-  {
-    id: "file-agent-install",
-    name: "install-agent.sh",
-    path: "/opt/nextops/install-agent.sh",
-    type: "script",
-    size: "8 KB",
-    source: "nextops",
-    updatedAt: "2026-05-12T05:10:00.000Z"
-  },
-  {
-    id: "file-db-report",
-    name: "postgres-diagnosis.txt",
-    path: "/tmp/postgres-diagnosis.txt",
-    type: "report",
-    size: "32 KB",
-    source: "prod-db-01",
-    updatedAt: "2026-05-12T04:35:00.000Z"
-  }
-];
-
-const tenants = [
-  {
-    id: "tenant-default",
-    name: "Default Ops",
-    status: "active",
-    servers: 4,
-    alerts: 2,
-    aiDiagnosesToday: 12,
-    quota: "standard"
-  },
-  {
-    id: "tenant-devops",
-    name: "DevOps Lab",
-    status: "active",
-    servers: 8,
-    alerts: 1,
-    aiDiagnosesToday: 7,
-    quota: "standard"
-  },
-  {
-    id: "tenant-private-cloud",
-    name: "Private Cloud",
-    status: "review",
-    servers: 15,
-    alerts: 4,
-    aiDiagnosesToday: 18,
-    quota: "enterprise"
-  }
-];
-
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "nextops-api", time: new Date().toISOString() });
 });
 
 app.get("/api/dashboard/summary", async (_req, res, next) => {
   try {
-    const [servers, alerts, scripts] = await Promise.all([getServers(), getAlerts(), getScripts()]);
+    const [servers, alerts, scripts, slashCommands] = await Promise.all([getServers(), getAlerts(), getScripts(), getSlashCommands()]);
     const onlineServers = servers.filter((server) => server.agentStatus === "online").length;
     const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").length;
 
@@ -488,17 +397,25 @@ app.post("/api/scripts/:id/run", async (req, res, next) => {
   }
 });
 
-app.get("/api/slash-commands", (_req, res) => {
-  res.json({ items: slashCommands });
+app.get("/api/slash-commands", async (_req, res, next) => {
+  try {
+    res.json({ items: await getSlashCommands() });
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.get("/api/packages", (_req, res) => {
-  res.json({ items: packages });
+app.get("/api/packages", async (_req, res, next) => {
+  try {
+    res.json({ items: await getPackages() });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
   try {
-    const item = packages.find((candidate) => candidate.id === req.params.id);
+    const item = await getPackage(req.params.id);
     if (!item) {
       res.status(404).json({ message: "Package not found" });
       return;
@@ -536,13 +453,17 @@ app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
   }
 });
 
-app.get("/api/files", (_req, res) => {
-  res.json({ items: managedFiles });
+app.get("/api/files", async (_req, res, next) => {
+  try {
+    res.json({ items: await getManagedFiles() });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
   try {
-    const file = managedFiles.find((candidate) => candidate.id === req.params.id);
+    const file = await getManagedFile(req.params.id);
     if (!file) {
       res.status(404).json({ message: "File not found" });
       return;
@@ -587,16 +508,21 @@ app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
   }
 });
 
-app.get("/api/tenants/summary", (_req, res) => {
-  res.json({
-    items: tenants,
-    totals: {
-      tenants: tenants.length,
-      servers: tenants.reduce((total, tenant) => total + tenant.servers, 0),
-      alerts: tenants.reduce((total, tenant) => total + tenant.alerts, 0),
-      aiDiagnosesToday: tenants.reduce((total, tenant) => total + tenant.aiDiagnosesToday, 0)
-    }
-  });
+app.get("/api/tenants/summary", async (_req, res, next) => {
+  try {
+    const tenants = await getTenants();
+    res.json({
+      items: tenants,
+      totals: {
+        tenants: tenants.length,
+        servers: tenants.reduce((total, tenant) => total + tenant.servers, 0),
+        alerts: tenants.reduce((total, tenant) => total + tenant.alerts, 0),
+        aiDiagnosesToday: tenants.reduce((total, tenant) => total + tenant.aiDiagnosesToday, 0)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/approvals", async (_req, res, next) => {

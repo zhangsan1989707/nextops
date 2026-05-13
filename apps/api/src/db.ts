@@ -112,6 +112,42 @@ export type PermissionRecord = {
   group: string;
 };
 
+export type SlashCommandRecord = {
+  command: string;
+  description: string;
+  example: string;
+};
+
+export type PackageRecord = {
+  id: string;
+  name: string;
+  type: string;
+  version: string;
+  size: string;
+  checksum: string;
+  status: string;
+};
+
+export type ManagedFileRecord = {
+  id: string;
+  name: string;
+  path: string;
+  type: string;
+  size: string;
+  source: string;
+  updatedAt: string;
+};
+
+export type TenantRecord = {
+  id: string;
+  name: string;
+  status: string;
+  servers: number;
+  alerts: number;
+  aiDiagnosesToday: number;
+  quota: string;
+};
+
 export type ApprovalTicketRecord = {
   id: string;
   title: string;
@@ -429,6 +465,103 @@ const demoPermissions: PermissionRecord[] = [
   { key: "role:manage", label: "管理角色", group: "设置" }
 ];
 
+const demoSlashCommands: SlashCommandRecord[] = [
+  { command: "/ssh", description: "打开服务器 Web SSH", example: "/ssh 10.0.1.21 --port 22" },
+  { command: "/check", description: "发起服务器巡检", example: "/check prod-web --items cpu,memory,disk" },
+  { command: "/diagnose", description: "发起 AI 诊断", example: "/diagnose alert alt-001" },
+  { command: "/deploy", description: "触发部署计划", example: "/deploy order-service --env prod --version 1.8.2" }
+];
+
+const demoPackages: PackageRecord[] = [
+  {
+    id: "pkg-agent-010",
+    name: "nextops-agent",
+    type: "agent",
+    version: "0.1.0",
+    size: "18.4 MB",
+    checksum: "sha256:7d9e-agent-demo",
+    status: "ready"
+  },
+  {
+    id: "pkg-nginx-conf-184",
+    name: "nginx-conf-bundle",
+    type: "config",
+    version: "1.8.4",
+    size: "240 KB",
+    checksum: "sha256:aa31-nginx-demo",
+    status: "ready"
+  },
+  {
+    id: "pkg-order-service-182",
+    name: "order-service",
+    type: "release",
+    version: "1.8.2",
+    size: "84.1 MB",
+    checksum: "sha256:f91c-order-demo",
+    status: "verified"
+  }
+];
+
+const demoManagedFiles: ManagedFileRecord[] = [
+  {
+    id: "file-nginx-access",
+    name: "nginx-access-sample.log",
+    path: "/var/log/nginx/access.log",
+    type: "log",
+    size: "12.8 MB",
+    source: "prod-web-01",
+    updatedAt: "2026-05-12T06:42:00.000Z"
+  },
+  {
+    id: "file-agent-install",
+    name: "install-agent.sh",
+    path: "/opt/nextops/install-agent.sh",
+    type: "script",
+    size: "8 KB",
+    source: "nextops",
+    updatedAt: "2026-05-12T05:10:00.000Z"
+  },
+  {
+    id: "file-db-report",
+    name: "postgres-diagnosis.txt",
+    path: "/tmp/postgres-diagnosis.txt",
+    type: "report",
+    size: "32 KB",
+    source: "prod-db-01",
+    updatedAt: "2026-05-12T04:35:00.000Z"
+  }
+];
+
+const demoTenants: TenantRecord[] = [
+  {
+    id: "tenant-default",
+    name: "Default Ops",
+    status: "active",
+    servers: 4,
+    alerts: 2,
+    aiDiagnosesToday: 12,
+    quota: "standard"
+  },
+  {
+    id: "tenant-devops",
+    name: "DevOps Lab",
+    status: "active",
+    servers: 8,
+    alerts: 1,
+    aiDiagnosesToday: 7,
+    quota: "standard"
+  },
+  {
+    id: "tenant-private-cloud",
+    name: "Private Cloud",
+    status: "review",
+    servers: 15,
+    alerts: 4,
+    aiDiagnosesToday: 18,
+    quota: "enterprise"
+  }
+];
+
 const demoApprovalTickets: ApprovalTicketRecord[] = [
   {
     id: "apv-001",
@@ -628,6 +761,52 @@ const migrations = [
       create index if not exists approval_tickets_status_created_at_idx
         on approval_tickets (status, created_at desc);
     `
+  },
+  {
+    id: "0005_operational_catalogs",
+    sql: `
+      create table if not exists slash_commands (
+        command text primary key,
+        description text not null,
+        example text not null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists packages (
+        id text primary key,
+        name text not null,
+        package_type text not null,
+        version text not null,
+        package_size text not null,
+        checksum text not null,
+        status text not null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists managed_files (
+        id text primary key,
+        name text not null,
+        file_path text not null,
+        file_type text not null,
+        file_size text not null,
+        source text not null,
+        updated_at timestamptz not null
+      );
+
+      create table if not exists tenants (
+        id text primary key,
+        name text not null,
+        status text not null,
+        servers integer not null default 0,
+        alerts integer not null default 0,
+        ai_diagnoses_today integer not null default 0,
+        quota text not null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+    `
   }
 ];
 
@@ -678,6 +857,7 @@ export async function initializeDatabase() {
 
   await seedIdentityAccess();
   await seedApprovalTickets();
+  await seedOperationalCatalogs();
 }
 
 async function seedIdentityAccess() {
@@ -783,6 +963,60 @@ async function seedApprovalTickets() {
         ticket.relatedResource
       ]
     );
+  }
+}
+
+async function seedOperationalCatalogs() {
+  const slashCommandCount = await pool.query<{ count: string }>("select count(*) from slash_commands");
+  if (Number(slashCommandCount.rows[0]?.count ?? 0) === 0) {
+    for (const item of demoSlashCommands) {
+      await pool.query(
+        "insert into slash_commands (command, description, example) values ($1, $2, $3) on conflict (command) do nothing",
+        [item.command, item.description, item.example]
+      );
+    }
+  }
+
+  const packageCount = await pool.query<{ count: string }>("select count(*) from packages");
+  if (Number(packageCount.rows[0]?.count ?? 0) === 0) {
+    for (const item of demoPackages) {
+      await pool.query(
+        `
+          insert into packages (id, name, package_type, version, package_size, checksum, status)
+          values ($1, $2, $3, $4, $5, $6, $7)
+          on conflict (id) do nothing
+        `,
+        [item.id, item.name, item.type, item.version, item.size, item.checksum, item.status]
+      );
+    }
+  }
+
+  const fileCount = await pool.query<{ count: string }>("select count(*) from managed_files");
+  if (Number(fileCount.rows[0]?.count ?? 0) === 0) {
+    for (const item of demoManagedFiles) {
+      await pool.query(
+        `
+          insert into managed_files (id, name, file_path, file_type, file_size, source, updated_at)
+          values ($1, $2, $3, $4, $5, $6, $7)
+          on conflict (id) do nothing
+        `,
+        [item.id, item.name, item.path, item.type, item.size, item.source, item.updatedAt]
+      );
+    }
+  }
+
+  const tenantCount = await pool.query<{ count: string }>("select count(*) from tenants");
+  if (Number(tenantCount.rows[0]?.count ?? 0) === 0) {
+    for (const item of demoTenants) {
+      await pool.query(
+        `
+          insert into tenants (id, name, status, servers, alerts, ai_diagnoses_today, quota)
+          values ($1, $2, $3, $4, $5, $6, $7)
+          on conflict (id) do nothing
+        `,
+        [item.id, item.name, item.status, item.servers, item.alerts, item.aiDiagnosesToday, item.quota]
+      );
+    }
   }
 }
 
@@ -1248,6 +1482,66 @@ export async function reviewApprovalTicket(
   return result.rows[0] ? mapApprovalTicket(result.rows[0]) : null;
 }
 
+export async function getSlashCommands(): Promise<SlashCommandRecord[]> {
+  const result = await pool.query(`
+    select command, description, example
+    from slash_commands
+    order by command asc
+  `);
+  return result.rows.map(mapSlashCommand);
+}
+
+export async function getPackages(): Promise<PackageRecord[]> {
+  const result = await pool.query(`
+    select id, name, package_type, version, package_size, checksum, status
+    from packages
+    order by created_at asc
+  `);
+  return result.rows.map(mapPackage);
+}
+
+export async function getPackage(id: string): Promise<PackageRecord | null> {
+  const result = await pool.query(
+    `
+      select id, name, package_type, version, package_size, checksum, status
+      from packages
+      where id = $1
+    `,
+    [id]
+  );
+  return result.rows[0] ? mapPackage(result.rows[0]) : null;
+}
+
+export async function getManagedFiles(): Promise<ManagedFileRecord[]> {
+  const result = await pool.query(`
+    select id, name, file_path, file_type, file_size, source, updated_at
+    from managed_files
+    order by updated_at desc
+  `);
+  return result.rows.map(mapManagedFile);
+}
+
+export async function getManagedFile(id: string): Promise<ManagedFileRecord | null> {
+  const result = await pool.query(
+    `
+      select id, name, file_path, file_type, file_size, source, updated_at
+      from managed_files
+      where id = $1
+    `,
+    [id]
+  );
+  return result.rows[0] ? mapManagedFile(result.rows[0]) : null;
+}
+
+export async function getTenants(): Promise<TenantRecord[]> {
+  const result = await pool.query(`
+    select id, name, status, servers, alerts, ai_diagnoses_today, quota
+    from tenants
+    order by created_at asc
+  `);
+  return result.rows.map(mapTenant);
+}
+
 function mapServer(row: Record<string, unknown>): ServerRecord {
   return {
     id: String(row.id),
@@ -1345,5 +1639,49 @@ function mapApprovalTicket(row: Record<string, unknown>): ApprovalTicketRecord {
     summary: String(row.summary),
     steps: Array.isArray(row.steps) ? row.steps.map(String) : [],
     relatedResource: String(row.related_resource)
+  };
+}
+
+function mapSlashCommand(row: Record<string, unknown>): SlashCommandRecord {
+  return {
+    command: String(row.command),
+    description: String(row.description),
+    example: String(row.example)
+  };
+}
+
+function mapPackage(row: Record<string, unknown>): PackageRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    type: String(row.package_type),
+    version: String(row.version),
+    size: String(row.package_size),
+    checksum: String(row.checksum),
+    status: String(row.status)
+  };
+}
+
+function mapManagedFile(row: Record<string, unknown>): ManagedFileRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    path: String(row.file_path),
+    type: String(row.file_type),
+    size: String(row.file_size),
+    source: String(row.source),
+    updatedAt: new Date(String(row.updated_at)).toISOString()
+  };
+}
+
+function mapTenant(row: Record<string, unknown>): TenantRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    status: String(row.status),
+    servers: Number(row.servers),
+    alerts: Number(row.alerts),
+    aiDiagnosesToday: Number(row.ai_diagnoses_today),
+    quota: String(row.quota)
   };
 }
