@@ -10,6 +10,8 @@ RUN_ID="$(date '+%Y%m%d-%H%M%S')"
 RUN_LOG="$LOG_DIR/run-$RUN_ID.log"
 LAST_MESSAGE="$LOG_DIR/last-message-$RUN_ID.md"
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 mkdir -p "$LOG_DIR"
 
 log() {
