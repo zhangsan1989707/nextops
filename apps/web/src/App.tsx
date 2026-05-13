@@ -433,6 +433,8 @@ export function App() {
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
   const [loadingServers, setLoadingServers] = useState(false);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -445,71 +447,89 @@ export function App() {
     return "仪表盘";
   }, [activePage]);
 
-  async function refreshData() {
-    const [
-      nextSummary,
-      nextServers,
-      nextAlerts,
-      nextScripts,
-      nextSlashCommands,
-      nextPackages,
-      nextFiles,
-      nextTenantSummary,
-      nextApprovalSummary,
-      nextModelSummary,
-      nextMemberSummary,
-      nextTeamSummary,
-      nextRoleSummary
-    ] = await Promise.all([
-      fetchJson<DashboardSummary>("/api/dashboard/summary"),
-      fetchJson<{ items: ServerItem[] }>("/api/servers"),
-      fetchJson<{ items: AlertItem[] }>("/api/alerts"),
-      fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
-      fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands"),
-      fetchJson<{ items: PackageItem[] }>("/api/packages"),
-      fetchJson<{ items: FileItem[] }>("/api/files"),
-      fetchJson<TenantSummary>("/api/tenants/summary"),
-      fetchJson<ApprovalSummary>("/api/approvals"),
-      fetchJson<ModelSummary>("/api/models"),
-      fetchJson<MemberSummary>("/api/members"),
-      fetchJson<TeamSummary>("/api/teams/summary"),
-      fetchJson<RoleSummary>("/api/roles/summary")
-    ]);
-    setSummary(nextSummary);
+  async function loadServers() {
+    const nextServers = await fetchJson<{ items: ServerItem[] }>("/api/servers");
     setServers(nextServers.items);
-    setAlerts(nextAlerts.items);
-    setScripts(nextScripts.items);
-    setSlashCommands(nextSlashCommands.items);
-    setPackages(nextPackages.items);
-    setFiles(nextFiles.items);
-    setTenantSummary(nextTenantSummary);
-    setApprovalSummary(nextApprovalSummary);
-    setModelSummary(nextModelSummary);
-    setMemberSummary(nextMemberSummary);
-    setTeamSummary(nextTeamSummary);
-    setRoleSummary(nextRoleSummary);
+  }
+
+  async function refreshData() {
+    await loadPageData(activePage);
+  }
+
+  async function loadPageData(page: string) {
+    setPageLoading(true);
+    setPageError(null);
+    if (page === "servers") {
+      setLoadingServers(true);
+    }
+
+    try {
+      if (page === "dashboard") {
+        const [nextSummary, nextServers] = await Promise.all([
+          fetchJson<DashboardSummary>("/api/dashboard/summary"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
+        ]);
+        setSummary(nextSummary);
+        setServers(nextServers.items);
+      } else if (page === "alerts") {
+        const [nextAlerts, nextServers] = await Promise.all([
+          fetchJson<{ items: AlertItem[] }>("/api/alerts"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
+        ]);
+        setAlerts(nextAlerts.items);
+        setServers(nextServers.items);
+      } else if (page === "servers") {
+        await loadServers();
+      } else if (page === "scripts") {
+        const [nextScripts, nextServers] = await Promise.all([
+          fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
+        ]);
+        setScripts(nextScripts.items);
+        setServers(nextServers.items);
+      } else if (page === "commands") {
+        const nextSlashCommands = await fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands");
+        setSlashCommands(nextSlashCommands.items);
+      } else if (page === "packages") {
+        const [nextPackages, nextServers] = await Promise.all([
+          fetchJson<{ items: PackageItem[] }>("/api/packages"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
+        ]);
+        setPackages(nextPackages.items);
+        setServers(nextServers.items);
+      } else if (page === "files") {
+        const [nextFiles, nextServers] = await Promise.all([
+          fetchJson<{ items: FileItem[] }>("/api/files"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
+        ]);
+        setFiles(nextFiles.items);
+        setServers(nextServers.items);
+      } else if (page === "tenants") {
+        setTenantSummary(await fetchJson<TenantSummary>("/api/tenants/summary"));
+      } else if (page === "approvals") {
+        setApprovalSummary(await fetchJson<ApprovalSummary>("/api/approvals"));
+      } else if (page === "models") {
+        setModelSummary(await fetchJson<ModelSummary>("/api/models"));
+      } else if (page === "members") {
+        setMemberSummary(await fetchJson<MemberSummary>("/api/members"));
+      } else if (page === "teams") {
+        setTeamSummary(await fetchJson<TeamSummary>("/api/teams/summary"));
+      } else if (page === "roles") {
+        setRoleSummary(await fetchJson<RoleSummary>("/api/roles/summary"));
+      }
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "页面数据加载失败");
+    } finally {
+      setPageLoading(false);
+      if (page === "servers") {
+        setLoadingServers(false);
+      }
+    }
   }
 
   useEffect(() => {
-    setLoadingServers(true);
-    refreshData()
-      .catch(() => {
-        setSummary(null);
-        setServers([]);
-        setAlerts([]);
-        setScripts([]);
-        setSlashCommands([]);
-        setPackages([]);
-        setFiles([]);
-        setTenantSummary(null);
-        setApprovalSummary(null);
-        setModelSummary(null);
-        setMemberSummary(null);
-        setTeamSummary(null);
-        setRoleSummary(null);
-      })
-      .finally(() => setLoadingServers(false));
-  }, []);
+    void loadPageData(activePage);
+  }, [activePage]);
 
   async function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -610,6 +630,9 @@ export function App() {
             </div>
           </div>
         </header>
+
+        {pageError && <div className="table-empty">当前页面数据加载失败：{pageError}</div>}
+        {pageLoading && activePage !== "servers" && <div className="table-empty">正在加载当前页面数据...</div>}
 
         {activePage === "dashboard" && <Dashboard summary={summary} servers={servers} />}
         {activePage === "chatops" && (
