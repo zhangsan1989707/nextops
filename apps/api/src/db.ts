@@ -148,6 +148,40 @@ export type TenantRecord = {
   quota: string;
 };
 
+export type AuditLogInput = {
+  action: string;
+  actor: string;
+  resourceType: string;
+  resourceId: string;
+  summary: string;
+  details?: Record<string, unknown>;
+};
+
+export type AuditLogRecord = AuditLogInput & {
+  id: string;
+  createdAt: string;
+};
+
+export type TaskRecordInput = {
+  id: string;
+  taskType: string;
+  status: string;
+  riskLevel: string;
+  requiresApproval: boolean;
+  targetId: string | null;
+  targetName: string | null;
+  resourceId: string;
+  resourceName: string;
+  summary: string;
+  plan: string[];
+  output: string | null;
+};
+
+export type TaskRecord = TaskRecordInput & {
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ApprovalTicketRecord = {
   id: string;
   title: string;
@@ -806,6 +840,44 @@ const migrations = [
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       );
+    `
+  },
+  {
+    id: "0006_task_audit_records",
+    sql: `
+      create table if not exists task_records (
+        id text primary key,
+        task_type text not null,
+        status text not null,
+        risk_level text not null,
+        requires_approval boolean not null default false,
+        target_id text,
+        target_name text,
+        resource_id text not null,
+        resource_name text not null,
+        summary text not null,
+        plan text[] not null default '{}',
+        output text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create index if not exists task_records_created_at_idx
+        on task_records (created_at desc);
+
+      create table if not exists audit_logs (
+        id text primary key,
+        action text not null,
+        actor text not null,
+        resource_type text not null,
+        resource_id text not null,
+        summary text not null,
+        details jsonb not null default '{}'::jsonb,
+        created_at timestamptz not null default now()
+      );
+
+      create index if not exists audit_logs_resource_created_at_idx
+        on audit_logs (resource_type, resource_id, created_at desc);
     `
   }
 ];
@@ -1542,6 +1614,82 @@ export async function getTenants(): Promise<TenantRecord[]> {
   return result.rows.map(mapTenant);
 }
 
+export async function createTaskRecord(input: TaskRecordInput): Promise<TaskRecord> {
+  const result = await pool.query(
+    `
+      insert into task_records (
+        id, task_type, status, risk_level, requires_approval, target_id, target_name,
+        resource_id, resource_name, summary, plan, output
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      returning id, task_type, status, risk_level, requires_approval, target_id, target_name,
+        resource_id, resource_name, summary, plan, output, created_at, updated_at
+    `,
+    [
+      input.id,
+      input.taskType,
+      input.status,
+      input.riskLevel,
+      input.requiresApproval,
+      input.targetId,
+      input.targetName,
+      input.resourceId,
+      input.resourceName,
+      input.summary,
+      input.plan,
+      input.output
+    ]
+  );
+  return mapTaskRecord(result.rows[0]);
+}
+
+export async function getTaskRecords(limit = 20): Promise<TaskRecord[]> {
+  const result = await pool.query(
+    `
+      select id, task_type, status, risk_level, requires_approval, target_id, target_name,
+        resource_id, resource_name, summary, plan, output, created_at, updated_at
+      from task_records
+      order by created_at desc
+      limit $1
+    `,
+    [limit]
+  );
+  return result.rows.map(mapTaskRecord);
+}
+
+export async function createAuditLog(input: AuditLogInput): Promise<AuditLogRecord> {
+  const result = await pool.query(
+    `
+      insert into audit_logs (id, action, actor, resource_type, resource_id, summary, details)
+      values ($1, $2, $3, $4, $5, $6, $7)
+      returning id, action, actor, resource_type, resource_id, summary, details, created_at
+    `,
+    [
+      `aud-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      input.action,
+      input.actor,
+      input.resourceType,
+      input.resourceId,
+      input.summary,
+      JSON.stringify(input.details ?? {})
+    ]
+  );
+  return mapAuditLog(result.rows[0]);
+}
+
+export async function getAuditLogs(limit = 50): Promise<AuditLogRecord[]> {
+  const result = await pool.query(
+    `
+      select id, action, actor, resource_type, resource_id, summary, details, created_at
+      from audit_logs
+      order by created_at desc
+      limit $1
+    `,
+    [limit]
+  );
+  return result.rows.map(mapAuditLog);
+}
+
 function mapServer(row: Record<string, unknown>): ServerRecord {
   return {
     id: String(row.id),
@@ -1683,5 +1831,38 @@ function mapTenant(row: Record<string, unknown>): TenantRecord {
     alerts: Number(row.alerts),
     aiDiagnosesToday: Number(row.ai_diagnoses_today),
     quota: String(row.quota)
+  };
+}
+
+function mapTaskRecord(row: Record<string, unknown>): TaskRecord {
+  return {
+    id: String(row.id),
+    taskType: String(row.task_type),
+    status: String(row.status),
+    riskLevel: String(row.risk_level),
+    requiresApproval: Boolean(row.requires_approval),
+    targetId: row.target_id ? String(row.target_id) : null,
+    targetName: row.target_name ? String(row.target_name) : null,
+    resourceId: String(row.resource_id),
+    resourceName: String(row.resource_name),
+    summary: String(row.summary),
+    plan: Array.isArray(row.plan) ? row.plan.map(String) : [],
+    output: row.output ? String(row.output) : null,
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    updatedAt: new Date(String(row.updated_at)).toISOString()
+  };
+}
+
+function mapAuditLog(row: Record<string, unknown>): AuditLogRecord {
+  const details = row.details && typeof row.details === "object" && !Array.isArray(row.details) ? row.details : {};
+  return {
+    id: String(row.id),
+    action: String(row.action),
+    actor: String(row.actor),
+    resourceType: String(row.resource_type),
+    resourceId: String(row.resource_id),
+    summary: String(row.summary),
+    details: details as Record<string, unknown>,
+    createdAt: new Date(String(row.created_at)).toISOString()
   };
 }

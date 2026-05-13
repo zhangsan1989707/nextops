@@ -2,13 +2,16 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import {
+  createAuditLog,
   createAiModel,
   createServer,
+  createTaskRecord,
   getAiModel,
   getAiModels,
   getApprovalTickets,
   getAlert,
   getAlerts,
+  getAuditLogs,
   getManagedFile,
   getManagedFiles,
   getMembers,
@@ -21,6 +24,7 @@ import {
   getServer,
   getServers,
   getSlashCommands,
+  getTaskRecords,
   getTeams,
   getTenants,
   initializeDatabase,
@@ -149,7 +153,16 @@ app.post("/api/servers", async (req, res, next) => {
       tags: parseTags(req.body?.tags)
     };
 
-    res.status(201).json(await createServer(server));
+    const createdServer = await createServer(server);
+    await createAuditLog({
+      action: "server.create",
+      actor: "ops-admin",
+      resourceType: "server",
+      resourceId: createdServer.id,
+      summary: `纳管服务器 ${createdServer.hostname}`,
+      details: { ip: createdServer.ip, port: createdServer.port, environment: createdServer.environment }
+    });
+    res.status(201).json(createdServer);
   } catch (error) {
     next(error);
   }
@@ -199,19 +212,45 @@ app.post("/api/servers/:id/agent/install-plan", async (req, res, next) => {
       return;
     }
 
-    res.json({
-      serverId: server.id,
-      title: `为 ${server.hostname} 部署 NextOps Agent`,
+    const steps = [
+      `通过 Web SSH 连接 ${server.ip}:${server.port}`,
+      "检测系统架构、发行版和已有 Agent 状态",
+      "下载 nextops-agent 安装包并写入租户绑定 Token",
+      "启动 Agent 服务并等待首次心跳",
+      "回写服务器配置、实时指标和日志采集状态"
+    ];
+    const requiresApproval = server.environment === "production";
+    const task = await createTaskRecord({
+      id: `task-${Date.now().toString(36)}`,
+      taskType: "agent_install_plan",
+      status: requiresApproval ? "waiting_approval" : "planned",
       riskLevel: "medium",
-      steps: [
-        `通过 Web SSH 连接 ${server.ip}:${server.port}`,
-        "检测系统架构、发行版和已有 Agent 状态",
-        "下载 nextops-agent 安装包并写入租户绑定 Token",
-        "启动 Agent 服务并等待首次心跳",
-        "回写服务器配置、实时指标和日志采集状态"
-      ],
+      requiresApproval,
+      targetId: server.id,
+      targetName: server.hostname,
+      resourceId: "nextops-agent",
+      resourceName: "NextOps Agent",
+      summary: `为 ${server.hostname} 部署 NextOps Agent`,
+      plan: steps,
+      output: null
+    });
+    await createAuditLog({
+      action: "agent.install_plan",
+      actor: "ops-admin",
+      resourceType: "server",
+      resourceId: server.id,
+      summary: `生成 ${server.hostname} Agent 安装计划`,
+      details: { taskId: task.id, requiresApproval }
+    });
+
+    res.json({
+      taskId: task.id,
+      serverId: server.id,
+      title: task.summary,
+      riskLevel: task.riskLevel,
+      steps,
       command: `curl -fsSL http://nextops.local/install-agent.sh | sudo NEXTOPS_SERVER=${server.id} bash`,
-      requiresApproval: server.environment === "production"
+      requiresApproval
     });
   } catch (error) {
     next(error);
@@ -368,8 +407,41 @@ app.post("/api/scripts/:id/run", async (req, res, next) => {
     }
 
     const requiresApproval = script.riskLevel !== "low" || target.environment === "production";
+    const plan = [
+      `校验脚本 ${script.name} 的版本和风险等级`,
+      `确认目标服务器 ${target.hostname} 的 Agent/SSH 状态`,
+      "注入参数并生成执行命令",
+      requiresApproval ? "生产或中高风险操作进入审批" : "执行脚本并采集输出",
+      "写入任务记录和审计日志"
+    ];
+    const output = requiresApproval
+      ? "任务已生成，等待审批后执行。"
+      : `[${target.hostname}] script completed successfully\\ncpu=${target.cpuUsage}% memory=${target.memoryUsage}% disk=${target.diskUsage}%`;
+    const task = await createTaskRecord({
+      id: `task-${Date.now().toString(36)}`,
+      taskType: "script_run",
+      status: requiresApproval ? "waiting_approval" : "success",
+      riskLevel: script.riskLevel,
+      requiresApproval,
+      targetId: target.id,
+      targetName: target.hostname,
+      resourceId: script.id,
+      resourceName: script.name,
+      summary: `运行脚本 ${script.name}`,
+      plan,
+      output
+    });
+    await createAuditLog({
+      action: "script.run",
+      actor: "ops-admin",
+      resourceType: "script",
+      resourceId: script.id,
+      summary: `向 ${target.hostname} 发起脚本 ${script.name}`,
+      details: { taskId: task.id, targetId: target.id, requiresApproval }
+    });
+
     res.json({
-      taskId: `task-${Date.now().toString(36)}`,
+      taskId: task.id,
       scriptId: script.id,
       scriptName: script.name,
       target: {
@@ -381,16 +453,8 @@ app.post("/api/scripts/:id/run", async (req, res, next) => {
       status: requiresApproval ? "waiting_approval" : "success",
       riskLevel: script.riskLevel,
       requiresApproval,
-      plan: [
-        `校验脚本 ${script.name} 的版本和风险等级`,
-        `确认目标服务器 ${target.hostname} 的 Agent/SSH 状态`,
-        "注入参数并生成执行命令",
-        requiresApproval ? "生产或中高风险操作进入审批" : "执行脚本并采集输出",
-        "写入任务记录和审计日志"
-      ],
-      output: requiresApproval
-        ? "任务已生成，等待审批后执行。"
-        : `[${target.hostname}] script completed successfully\\ncpu=${target.cpuUsage}% memory=${target.memoryUsage}% disk=${target.diskUsage}%`
+      plan,
+      output
     });
   } catch (error) {
     next(error);
@@ -429,7 +493,38 @@ app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
     }
 
     const requiresApproval = target.environment === "production" || item.type === "release";
+    const steps = [
+      `校验包 ${item.name}@${item.version} 的 checksum`,
+      `确认目标服务器 ${target.hostname} 的磁盘空间和 Agent 状态`,
+      "分发包到目标服务器临时目录",
+      item.type === "agent" ? "执行 Agent 安装/升级脚本" : "执行部署或配置替换动作",
+      "记录包使用记录和部署审计"
+    ];
+    const task = await createTaskRecord({
+      id: `task-${Date.now().toString(36)}`,
+      taskType: "package_deploy_plan",
+      status: requiresApproval ? "waiting_approval" : "planned",
+      riskLevel: requiresApproval ? "medium" : "low",
+      requiresApproval,
+      targetId: target.id,
+      targetName: target.hostname,
+      resourceId: item.id,
+      resourceName: item.name,
+      summary: `分发包 ${item.name}@${item.version}`,
+      plan: steps,
+      output: null
+    });
+    await createAuditLog({
+      action: "package.deploy_plan",
+      actor: "ops-admin",
+      resourceType: "package",
+      resourceId: item.id,
+      summary: `生成 ${item.name}@${item.version} 分发计划`,
+      details: { taskId: task.id, targetId: target.id, requiresApproval }
+    });
+
     res.json({
+      taskId: task.id,
       packageId: item.id,
       packageName: item.name,
       version: item.version,
@@ -440,13 +535,7 @@ app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
       },
       requiresApproval,
       riskLevel: requiresApproval ? "medium" : "low",
-      steps: [
-        `校验包 ${item.name}@${item.version} 的 checksum`,
-        `确认目标服务器 ${target.hostname} 的磁盘空间和 Agent 状态`,
-        "分发包到目标服务器临时目录",
-        item.type === "agent" ? "执行 Agent 安装/升级脚本" : "执行部署或配置替换动作",
-        "记录包使用记录和部署审计"
-      ]
+      steps
     });
   } catch (error) {
     next(error);
@@ -477,7 +566,47 @@ app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
       return;
     }
 
+    const riskLevel = file.type === "script" || target.environment === "production" ? "medium" : "low";
+    const requiresApproval = target.environment === "production";
+    const steps =
+      mode === "pull"
+        ? [
+            `通过 Agent/SSH 从 ${target.hostname} 读取 ${file.path}`,
+            "计算文件大小和 checksum",
+            "上传到 NextOps 文件区",
+            "写入文件操作审计"
+          ]
+        : [
+            `校验文件 ${file.name} 的 checksum 和权限`,
+            `分发到 ${target.hostname}:${file.path}`,
+            "设置文件 owner/mode",
+            "写入文件操作审计"
+          ];
+    const task = await createTaskRecord({
+      id: `task-${Date.now().toString(36)}`,
+      taskType: "file_transfer_plan",
+      status: requiresApproval ? "waiting_approval" : "planned",
+      riskLevel,
+      requiresApproval,
+      targetId: target.id,
+      targetName: target.hostname,
+      resourceId: file.id,
+      resourceName: file.name,
+      summary: `${mode === "pull" ? "拉取" : "分发"}文件 ${file.name}`,
+      plan: steps,
+      output: null
+    });
+    await createAuditLog({
+      action: "file.transfer_plan",
+      actor: "ops-admin",
+      resourceType: "file",
+      resourceId: file.id,
+      summary: `生成 ${file.name} 文件${mode === "pull" ? "拉取" : "分发"}计划`,
+      details: { taskId: task.id, targetId: target.id, mode, requiresApproval }
+    });
+
     res.json({
+      taskId: task.id,
       fileId: file.id,
       fileName: file.name,
       mode,
@@ -486,22 +615,9 @@ app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
         hostname: target.hostname,
         environment: target.environment
       },
-      riskLevel: file.type === "script" || target.environment === "production" ? "medium" : "low",
-      requiresApproval: target.environment === "production",
-      steps:
-        mode === "pull"
-          ? [
-              `通过 Agent/SSH 从 ${target.hostname} 读取 ${file.path}`,
-              "计算文件大小和 checksum",
-              "上传到 NextOps 文件区",
-              "写入文件操作审计"
-            ]
-          : [
-              `校验文件 ${file.name} 的 checksum 和权限`,
-              `分发到 ${target.hostname}:${file.path}`,
-              "设置文件 owner/mode",
-              "写入文件操作审计"
-            ]
+      riskLevel,
+      requiresApproval,
+      steps
     });
   } catch (error) {
     next(error);
@@ -560,7 +676,32 @@ app.post("/api/approvals/:id/action", async (req, res, next) => {
       return;
     }
 
+    await createAuditLog({
+      action: `approval.${action}`,
+      actor: "ops-admin",
+      resourceType: "approval_ticket",
+      resourceId: reviewedTicket.id,
+      summary: `${action === "approve" ? "通过" : "驳回"}审批工单 ${reviewedTicket.title}`,
+      details: { status: reviewedTicket.status, comment: reviewedTicket.comment }
+    });
+
     res.json(reviewedTicket);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/tasks", async (_req, res, next) => {
+  try {
+    res.json({ items: await getTaskRecords() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/audit-logs", async (_req, res, next) => {
+  try {
+    res.json({ items: await getAuditLogs() });
   } catch (error) {
     next(error);
   }
