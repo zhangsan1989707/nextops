@@ -6,6 +6,7 @@ import {
   createServer,
   getAiModel,
   getAiModels,
+  getApprovalTickets,
   getAlert,
   getAlerts,
   getMembers,
@@ -17,6 +18,7 @@ import {
   getServers,
   getTeams,
   initializeDatabase,
+  reviewApprovalTicket,
   setDefaultAiModel,
   toggleAiModel,
   toggleMember,
@@ -130,54 +132,6 @@ const tenants = [
     alerts: 4,
     aiDiagnosesToday: 18,
     quota: "enterprise"
-  }
-];
-
-let approvalTickets = [
-  {
-    id: "apv-001",
-    title: "生产环境 Nginx reload",
-    type: "script",
-    status: "pending",
-    riskLevel: "medium",
-    requester: "SRE 值班",
-    target: "prod-web-01",
-    environment: "production",
-    createdAt: "2026-05-12T07:15:00.000Z",
-    summary: "执行 Nginx 配置检查并 reload 服务，命中生产环境变更审批策略。",
-    steps: ["校验 nginx.conf 语法", "对比当前配置 checksum", "执行 systemctl reload nginx", "采集 reload 后 5 分钟 5xx 指标"],
-    relatedResource: "scr-002"
-  },
-  {
-    id: "apv-002",
-    title: "分发 Agent 安装包",
-    type: "package",
-    status: "pending",
-    riskLevel: "low",
-    requester: "平台管理员",
-    target: "prod-cache-01",
-    environment: "production",
-    createdAt: "2026-05-12T06:48:00.000Z",
-    summary: "向新纳管服务器分发 nextops-agent 安装包并生成安装计划。",
-    steps: ["校验安装包 checksum", "上传到 /opt/nextops", "生成 systemd unit", "等待人工确认安装"],
-    relatedResource: "pkg-agent-010"
-  },
-  {
-    id: "apv-003",
-    title: "数据库连接数诊断",
-    type: "diagnosis",
-    status: "approved",
-    riskLevel: "high",
-    requester: "DBA",
-    target: "prod-db-01",
-    environment: "production",
-    createdAt: "2026-05-12T05:20:00.000Z",
-    reviewedAt: "2026-05-12T05:28:00.000Z",
-    reviewer: "ops-admin",
-    comment: "允许执行只读诊断。",
-    summary: "对 PostgreSQL 活跃会话、等待事件和慢查询进行只读诊断。",
-    steps: ["查询 pg_stat_activity", "采集等待事件", "关联慢查询日志", "生成修复建议"],
-    relatedResource: "scr-003"
   }
 ];
 
@@ -645,41 +599,45 @@ app.get("/api/tenants/summary", (_req, res) => {
   });
 });
 
-app.get("/api/approvals", (_req, res) => {
-  res.json({
-    items: approvalTickets,
-    totals: {
-      pending: approvalTickets.filter((ticket) => ticket.status === "pending").length,
-      approved: approvalTickets.filter((ticket) => ticket.status === "approved").length,
-      rejected: approvalTickets.filter((ticket) => ticket.status === "rejected").length,
-      highRisk: approvalTickets.filter((ticket) => ticket.riskLevel === "high").length
-    }
-  });
+app.get("/api/approvals", async (_req, res, next) => {
+  try {
+    const approvalTickets = await getApprovalTickets();
+    res.json({
+      items: approvalTickets,
+      totals: {
+        pending: approvalTickets.filter((ticket) => ticket.status === "pending").length,
+        approved: approvalTickets.filter((ticket) => ticket.status === "approved").length,
+        rejected: approvalTickets.filter((ticket) => ticket.status === "rejected").length,
+        highRisk: approvalTickets.filter((ticket) => ticket.riskLevel === "high").length
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.post("/api/approvals/:id/action", (req, res) => {
-  const { action, comment } = req.body as { action?: string; comment?: string };
-  if (action !== "approve" && action !== "reject") {
-    res.status(400).json({ message: "action must be approve or reject" });
-    return;
+app.post("/api/approvals/:id/action", async (req, res, next) => {
+  try {
+    const { action, comment } = req.body as { action?: string; comment?: string };
+    if (action !== "approve" && action !== "reject") {
+      res.status(400).json({ message: "action must be approve or reject" });
+      return;
+    }
+
+    const reviewedTicket = await reviewApprovalTicket(
+      req.params.id,
+      action,
+      String(comment ?? "").trim() || (action === "approve" ? "审批通过。" : "审批驳回。")
+    );
+    if (!reviewedTicket) {
+      res.status(404).json({ message: "Approval ticket not found" });
+      return;
+    }
+
+    res.json(reviewedTicket);
+  } catch (error) {
+    next(error);
   }
-
-  const ticket = approvalTickets.find((item) => item.id === req.params.id);
-  if (!ticket) {
-    res.status(404).json({ message: "Approval ticket not found" });
-    return;
-  }
-
-  const nextTicket = {
-    ...ticket,
-    status: action === "approve" ? "approved" : "rejected",
-    reviewer: "ops-admin",
-    reviewedAt: new Date().toISOString(),
-    comment: String(comment ?? "").trim() || (action === "approve" ? "审批通过。" : "审批驳回。")
-  };
-
-  approvalTickets = approvalTickets.map((item) => (item.id === nextTicket.id ? nextTicket : item));
-  res.json(nextTicket);
 });
 
 app.get("/api/models", async (_req, res, next) => {

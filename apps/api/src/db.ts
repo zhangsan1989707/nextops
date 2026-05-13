@@ -112,6 +112,24 @@ export type PermissionRecord = {
   group: string;
 };
 
+export type ApprovalTicketRecord = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  riskLevel: string;
+  requester: string;
+  target: string;
+  environment: string;
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewer: string | null;
+  comment: string | null;
+  summary: string;
+  steps: string[];
+  relatedResource: string;
+};
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL ?? "postgres://nextops:nextops@localhost:5432/nextops"
 });
@@ -411,6 +429,60 @@ const demoPermissions: PermissionRecord[] = [
   { key: "role:manage", label: "管理角色", group: "设置" }
 ];
 
+const demoApprovalTickets: ApprovalTicketRecord[] = [
+  {
+    id: "apv-001",
+    title: "生产环境 Nginx reload",
+    type: "script",
+    status: "pending",
+    riskLevel: "medium",
+    requester: "SRE 值班",
+    target: "prod-web-01",
+    environment: "production",
+    createdAt: "2026-05-12T07:15:00.000Z",
+    reviewedAt: null,
+    reviewer: null,
+    comment: null,
+    summary: "执行 Nginx 配置检查并 reload 服务，命中生产环境变更审批策略。",
+    steps: ["校验 nginx.conf 语法", "对比当前配置 checksum", "执行 systemctl reload nginx", "采集 reload 后 5 分钟 5xx 指标"],
+    relatedResource: "scr-002"
+  },
+  {
+    id: "apv-002",
+    title: "分发 Agent 安装包",
+    type: "package",
+    status: "pending",
+    riskLevel: "low",
+    requester: "平台管理员",
+    target: "prod-cache-01",
+    environment: "production",
+    createdAt: "2026-05-12T06:48:00.000Z",
+    reviewedAt: null,
+    reviewer: null,
+    comment: null,
+    summary: "向新纳管服务器分发 nextops-agent 安装包并生成安装计划。",
+    steps: ["校验安装包 checksum", "上传到 /opt/nextops", "生成 systemd unit", "等待人工确认安装"],
+    relatedResource: "pkg-agent-010"
+  },
+  {
+    id: "apv-003",
+    title: "数据库连接数诊断",
+    type: "diagnosis",
+    status: "approved",
+    riskLevel: "high",
+    requester: "DBA",
+    target: "prod-db-01",
+    environment: "production",
+    createdAt: "2026-05-12T05:20:00.000Z",
+    reviewedAt: "2026-05-12T05:28:00.000Z",
+    reviewer: "ops-admin",
+    comment: "允许执行只读诊断。",
+    summary: "对 PostgreSQL 活跃会话、等待事件和慢查询进行只读诊断。",
+    steps: ["查询 pg_stat_activity", "采集等待事件", "关联慢查询日志", "生成修复建议"],
+    relatedResource: "scr-003"
+  }
+];
+
 const migrations = [
   {
     id: "0001_core_assets",
@@ -530,6 +602,32 @@ const migrations = [
         permission_group text not null
       );
     `
+  },
+  {
+    id: "0004_approval_tickets",
+    sql: `
+      create table if not exists approval_tickets (
+        id text primary key,
+        title text not null,
+        ticket_type text not null,
+        status text not null,
+        risk_level text not null,
+        requester text not null,
+        target text not null,
+        environment text not null,
+        created_at timestamptz not null,
+        reviewed_at timestamptz,
+        reviewer text,
+        comment text,
+        summary text not null,
+        steps text[] not null default '{}',
+        related_resource text not null,
+        updated_at timestamptz not null default now()
+      );
+
+      create index if not exists approval_tickets_status_created_at_idx
+        on approval_tickets (status, created_at desc);
+    `
   }
 ];
 
@@ -579,6 +677,7 @@ export async function initializeDatabase() {
   }
 
   await seedIdentityAccess();
+  await seedApprovalTickets();
 }
 
 async function seedIdentityAccess() {
@@ -647,6 +746,43 @@ async function seedIdentityAccess() {
         [role.id, role.name, role.scope, role.status, role.memberCount, role.description, role.permissions]
       );
     }
+  }
+}
+
+async function seedApprovalTickets() {
+  const approvalCount = await pool.query<{ count: string }>("select count(*) from approval_tickets");
+  if (Number(approvalCount.rows[0]?.count ?? 0) > 0) {
+    return;
+  }
+
+  for (const ticket of demoApprovalTickets) {
+    await pool.query(
+      `
+        insert into approval_tickets (
+          id, title, ticket_type, status, risk_level, requester, target, environment,
+          created_at, reviewed_at, reviewer, comment, summary, steps, related_resource
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        on conflict (id) do nothing
+      `,
+      [
+        ticket.id,
+        ticket.title,
+        ticket.type,
+        ticket.status,
+        ticket.riskLevel,
+        ticket.requester,
+        ticket.target,
+        ticket.environment,
+        ticket.createdAt,
+        ticket.reviewedAt,
+        ticket.reviewer,
+        ticket.comment,
+        ticket.summary,
+        ticket.steps,
+        ticket.relatedResource
+      ]
+    );
   }
 }
 
@@ -1080,6 +1216,38 @@ export async function toggleRolePermission(id: string, permission: string): Prom
   return result.rows[0] ? mapRole(result.rows[0]) : null;
 }
 
+export async function getApprovalTickets(): Promise<ApprovalTicketRecord[]> {
+  const result = await pool.query(`
+    select id, title, ticket_type, status, risk_level, requester, target, environment,
+      created_at, reviewed_at, reviewer, comment, summary, steps, related_resource
+    from approval_tickets
+    order by created_at desc
+  `);
+  return result.rows.map(mapApprovalTicket);
+}
+
+export async function reviewApprovalTicket(
+  id: string,
+  action: "approve" | "reject",
+  comment: string
+): Promise<ApprovalTicketRecord | null> {
+  const result = await pool.query(
+    `
+      update approval_tickets
+      set status = $2,
+        reviewer = 'ops-admin',
+        reviewed_at = now(),
+        comment = $3,
+        updated_at = now()
+      where id = $1
+      returning id, title, ticket_type, status, risk_level, requester, target, environment,
+        created_at, reviewed_at, reviewer, comment, summary, steps, related_resource
+    `,
+    [id, action === "approve" ? "approved" : "rejected", comment]
+  );
+  return result.rows[0] ? mapApprovalTicket(result.rows[0]) : null;
+}
+
 function mapServer(row: Record<string, unknown>): ServerRecord {
   return {
     id: String(row.id),
@@ -1157,5 +1325,25 @@ function mapRole(row: Record<string, unknown>): RoleRecord {
     memberCount: Number(row.member_count),
     description: String(row.description),
     permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : []
+  };
+}
+
+function mapApprovalTicket(row: Record<string, unknown>): ApprovalTicketRecord {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    type: String(row.ticket_type),
+    status: String(row.status),
+    riskLevel: String(row.risk_level),
+    requester: String(row.requester),
+    target: String(row.target),
+    environment: String(row.environment),
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    reviewedAt: row.reviewed_at ? new Date(String(row.reviewed_at)).toISOString() : null,
+    reviewer: row.reviewer ? String(row.reviewer) : null,
+    comment: row.comment ? String(row.comment) : null,
+    summary: String(row.summary),
+    steps: Array.isArray(row.steps) ? row.steps.map(String) : [],
+    relatedResource: String(row.related_resource)
   };
 }
