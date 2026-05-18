@@ -23,6 +23,9 @@ type Inventory = {
   uptimeSeconds: number;
   networkCards: string[];
   bootTime: string;
+  platform: string;
+  version: string;
+  arch: string;
 };
 
 async function main() {
@@ -48,33 +51,35 @@ async function main() {
 }
 
 async function sendMetrics() {
-  const [cpuUsage, memoryUsage, diskUsage, inventory, topProcesses, services, recentLogs, networkConnections, diskDetails] = await Promise.all([
-    sampleCpuUsage(),
-    memoryUsagePercent(),
-    diskUsagePercent(),
-    collectInventory(),
-    collectTopProcesses(),
-    collectServices(),
-    collectRecentLogs(),
-    collectNetworkConnections(),
-    collectDiskDetails()
-  ]);
-  const loadAvg = os.loadavg()[0] ?? 0;
-  await postJson(`/api/agents/${encodeURIComponent(AGENT_ID)}/metrics`, {
-    cpuUsage,
-    memoryUsage,
-    diskUsage,
-    loadAvg,
-    inventory,
-    topProcesses,
-    services,
-    recentLogs,
-    networkConnections,
-    diskDetails
-  });
-  console.log(
-    `metrics sent cpu=${cpuUsage}% memory=${memoryUsage}% disk=${diskUsage}% load=${loadAvg.toFixed(2)}`
-  );
+  await withRetry(async () => {
+    const [cpuUsage, memoryUsage, diskUsage, inventory, topProcesses, services, recentLogs, networkConnections, diskDetails] = await Promise.all([
+      sampleCpuUsage(),
+      memoryUsagePercent(),
+      diskUsagePercent(),
+      collectInventory(),
+      collectTopProcesses(),
+      collectServices(),
+      collectRecentLogs(),
+      collectNetworkConnections(),
+      collectDiskDetails()
+    ]);
+    const loadAvg = os.loadavg()[0] ?? 0;
+    await postJson(`/api/agents/${encodeURIComponent(AGENT_ID)}/metrics`, {
+      cpuUsage,
+      memoryUsage,
+      diskUsage,
+      loadAvg,
+      inventory,
+      topProcesses,
+      services,
+      recentLogs,
+      networkConnections,
+      diskDetails
+    });
+    console.log(
+      `metrics sent cpu=${cpuUsage}% memory=${memoryUsage}% disk=${diskUsage}% load=${loadAvg.toFixed(2)}`
+    );
+  }, 3, 2000);
 }
 
 async function memoryUsagePercent(): Promise<number> {
@@ -108,6 +113,7 @@ async function macMemoryPressurePercent(): Promise<number> {
 }
 
 async function collectInventory(): Promise<Inventory> {
+  const platformInfo = collectPlatformInfo();
   return {
     kernel: os.release(),
     cpuModel: os.cpus()[0]?.model ?? "unknown",
@@ -116,7 +122,18 @@ async function collectInventory(): Promise<Inventory> {
     diskTotalGb: await diskTotalGb(),
     uptimeSeconds: Math.round(os.uptime()),
     networkCards: Object.keys(os.networkInterfaces()),
-    bootTime: new Date(Date.now() - os.uptime() * 1000).toISOString()
+    bootTime: new Date(Date.now() - os.uptime() * 1000).toISOString(),
+    platform: platformInfo.platform,
+    version: platformInfo.version,
+    arch: platformInfo.arch
+  };
+}
+
+function collectPlatformInfo(): { platform: string; version: string; arch: string } {
+  return {
+    platform: os.platform(),
+    version: os.release(),
+    arch: os.arch()
   };
 }
 
@@ -182,29 +199,91 @@ async function collectTopProcesses(): Promise<Array<{ pid: string; user: string;
 }
 
 async function collectServices(): Promise<Array<{ name: string; active: string; sub: string; description: string }>> {
+  const platform = os.platform();
+
+  if (platform === "darwin") {
+    return collectMacServices();
+  } else if (platform === "win32") {
+    return collectWindowsServices();
+  } else {
+    return collectLinuxServices();
+  }
+}
+
+async function collectMacServices(): Promise<Array<{ name: string; active: string; sub: string; description: string }>> {
+  try {
+    const { stdout } = await execFileAsync("launchctl", ["list"]);
+    const lines = stdout.trim().split("\n").slice(1, 21);
+    return lines.map((line) => {
+      const parts = line.split("\t");
+      return {
+        name: parts[2] || "",
+        active: parts[3] === "0" ? "running" : "stopped",
+        sub: "-",
+        description: parts[1] || ""
+      };
+    }).filter(s => s.name);
+  } catch {
+    return [];
+  }
+}
+
+async function collectWindowsServices(): Promise<Array<{ name: string; active: string; sub: string; description: string }>> {
+  try {
+    const { stdout } = await execFileAsync("sc", ["query", "state=", "all"]);
+    const services: Array<{ name: string; active: string; sub: string; description: string }> = [];
+    const entries = stdout.split("SERVICE_NAME:");
+    for (const entry of entries.slice(1)) {
+      const lines = entry.trim().split("\n");
+      const name = lines[0].trim();
+      const stateMatch = entry.match(/STATE\s+:\s+(\d+)\s+(\w+)/);
+      services.push({
+        name,
+        active: stateMatch?.[2]?.toLowerCase() || "unknown",
+        sub: stateMatch?.[1] || "-",
+        description: ""
+      });
+    }
+    return services.slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+async function collectLinuxServices(): Promise<Array<{ name: string; active: string; sub: string; description: string }>> {
   try {
     const { stdout } = await execFileAsync("systemctl", ["list-units", "--type=service", "--no-pager", "--plain", "--no-legend"]);
     const lines = stdout.trim().split("\n").filter(Boolean);
     return lines.map((line) => {
       const parts = line.trim().split(/\s+/);
       return {
-        name: parts[0] ?? "",
-        active: parts[2] ?? "",
-        sub: parts[3] ?? "",
+        name: parts[0] || "",
+        active: parts[2] || "",
+        sub: parts[3] || "",
         description: parts.slice(4).join(" ")
       };
-    });
+    }).slice(0, 20);
   } catch {
     return [];
   }
 }
 
 async function collectRecentLogs(): Promise<string> {
+  const platform = os.platform();
+
   try {
-    const { stdout } = await execFileAsync("journalctl", ["-p", "err", "--since", "1 hour ago", "--no-pager", "-n", "50", "-o", "short-iso"]);
-    return stdout.trim();
+    if (platform === "darwin") {
+      const { stdout } = await execFileAsync("log", ["show", "--predicate", "eventMessage contains 'error'", "--last", "1h", "--limit", "50"]);
+      return stdout.trim() || "无最近错误日志";
+    } else if (platform === "win32") {
+      const { stdout } = await execFileAsync("powershell", ["-Command", "Get-WinEvent -FilterHashtable @{LogName='Application';Level=2;StartTime=(Get-Date).AddHours(-1)} -MaxEvents 50 | Format-List"]);
+      return stdout.trim() || "无最近错误日志";
+    } else {
+      const { stdout } = await execFileAsync("journalctl", ["-p", "err", "--since", "1 hour ago", "--no-pager", "-n", "50", "-o", "short-iso"]);
+      return stdout.trim() || "无最近错误日志";
+    }
   } catch {
-    return "";
+    return "日志收集失败";
   }
 }
 
@@ -263,6 +342,41 @@ async function postJson(path: string, body: unknown) {
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  let lastError: Error | undefined;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      if (i < retries - 1) {
+        const waitTime = delay * Math.pow(2, i);
+        console.log(`Attempt ${i + 1} failed, retrying in ${waitTime}ms...`);
+        await wait(waitTime);
+      }
+    }
+  }
+
+  throw lastError || new Error("All retries failed");
+}
+
+let isShuttingDown = false;
+
+process.on("SIGINT", async () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log("Received SIGINT, shutting down gracefully...");
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log("Received SIGTERM, shutting down gracefully...");
+  process.exit(0);
+});
 
 main().catch((error) => {
   console.error(error);

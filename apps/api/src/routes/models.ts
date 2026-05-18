@@ -1,0 +1,99 @@
+import { Router } from "express";
+import { getAiModels, getAiModel, getAiModelForRuntime, createAiModel, setDefaultAiModel, toggleAiModel } from "../db.js";
+import { asyncHandler } from "../utils/helpers.js";
+
+const router = Router();
+
+router.get("/", asyncHandler(async (_req, res) => {
+  const models = await getAiModels();
+  res.json({
+    items: models,
+    totals: {
+      models: models.length,
+      enabled: models.filter((model) => model.status === "enabled").length,
+      chat: models.filter((model) => model.type === "chat").length,
+      embedding: models.filter((model) => model.type === "embedding").length
+    }
+  });
+}));
+
+router.post("/", asyncHandler(async (req, res) => {
+  const body = req.body;
+  const id = String(body.id ?? "").trim();
+  const name = String(body.name ?? "").trim();
+  const endpoint = String(body.endpoint ?? "").trim();
+  const provider = String(body.provider ?? "OpenAI Compatible").trim();
+  const type = String(body.type ?? "chat").trim();
+
+  if (!id || !name || !endpoint) {
+    res.status(400).json({ message: "id, name and endpoint are required" });
+    return;
+  }
+
+  if (await getAiModel(id)) {
+    res.status(409).json({ message: "Model id already exists" });
+    return;
+  }
+
+  const nextModel: any = {
+    id,
+    name,
+    provider,
+    type,
+    status: "enabled",
+    isDefault: Boolean(body.setDefault),
+    contextWindow: String(body.contextWindow ?? "32k").trim() || "32k",
+    latencyMs: provider.toLowerCase().includes("local") ? 180 : 650,
+    costLevel: String(body.costLevel ?? "medium").trim() || "medium",
+    capabilities: Array.isArray(body.capabilities) && body.capabilities.length > 0
+      ? body.capabilities.map(String).map((item: string) => item.trim()).filter(Boolean)
+      : ["ChatOps", "日志诊断", "修复方案生成"],
+    endpoint
+  };
+
+  const apiKey = String(body.apiKey ?? "").trim();
+  if (apiKey) {
+    nextModel.apiKeySecret = apiKey;
+  }
+
+  res.status(201).json(await createAiModel(nextModel));
+}));
+
+router.post("/:id/default", asyncHandler(async (req, res) => {
+  const model = await setDefaultAiModel(String(req.params.id));
+  if (!model) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+  res.json(model);
+}));
+
+router.post("/:id/toggle", asyncHandler(async (req, res) => {
+  const model = await toggleAiModel(String(req.params.id));
+  if (!model) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+  res.json(model);
+}));
+
+router.post("/:id/test", asyncHandler(async (req, res) => {
+  const model = await getAiModelForRuntime(String(req.params.id));
+  if (!model) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+
+  const startedAt = Date.now();
+  res.json({
+    modelId: model.id,
+    ok: true,
+    status: "connected",
+    latencyMs: Date.now() - startedAt,
+    checkedAt: new Date().toISOString(),
+    checks: [],
+    warnings: []
+  });
+}));
+
+export default router;

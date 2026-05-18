@@ -16,6 +16,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: nextops-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - nextops-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ../apps/api
@@ -32,6 +45,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
   web:
     build:
@@ -46,3 +61,4 @@ services:
 
 volumes:
   nextops-postgres-data:
+  nextops-redis-data:

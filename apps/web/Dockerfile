@@ -1,21 +1,12 @@
-FROM node:22-alpine AS deps
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
-
-FROM node:22-alpine AS build
-ARG VITE_API_BASE_URL=http://localhost:4000
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:22-alpine AS runner
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package*.json ./
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
-CMD ["npm", "run", "preview"]
-
+CMD ["nginx", "-g", "daemon off;"]

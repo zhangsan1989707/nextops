@@ -1,0 +1,43 @@
+{
+  "name": "nextops-optimization",
+  "leadAgentId": "c8de54cfe0fb4fd08b878ca508d28099",
+  "workspacePath": "/Users/leohang/project/nextops",
+  "createdAt": "2026-05-18T06:19:24.929Z",
+  "options": {
+    "workspacePath": "/Users/leohang/project/nextops",
+    "isAutoTeam": false
+  },
+  "members": [
+    {
+      "memberId": "team-lead@nextops-optimization",
+      "name": "team-lead",
+      "role": "Team Lead - coordinates the team and interacts with the user"
+    },
+    {
+      "memberId": "api-modularization@nextops-optimization",
+      "name": "api-modularization",
+      "role": "API 模块化拆分"
+    },
+    {
+      "memberId": "docker-env-config@nextops-optimization",
+      "name": "docker-env-config",
+      "role": "Docker 和环境配置"
+    },
+    {
+      "memberId": "agent-cross-platform@nextops-optimization",
+      "name": "agent-cross-platform",
+      "role": "Agent 跨平台支持"
+    },
+    {
+      "memberId": "api-auth@nextops-optimization",
+      "name": "api-auth",
+      "role": "API 认证和安全"
+    },
+    {
+      "memberId": "create-api-routes@nextops-optimization",
+      "name": "create-api-routes",
+      "role": "创建 API 路由文件"
+    }
+  ],
+  "isAutoTeam": false
+}

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "msg-1779085246129-ywgijd",
+    "from": "team-lead",
+    "to": "@team",
+    "type": "broadcast",
+    "content": "请开始执行 API 模块化拆分任务。完成后请汇报结果。",
+    "timestamp": "2026-05-18T06:20:46.129Z",
+    "read": true
+  }
+]

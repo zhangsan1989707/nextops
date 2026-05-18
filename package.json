@@ -14,6 +14,8 @@
     "docker:up": "docker compose -f deploy/docker-compose.yml up --build",
     "docker:deploy": "docker compose -f deploy/docker-compose.yml up --build -d --remove-orphans",
     "docker:down": "docker compose -f deploy/docker-compose.yml down",
+    "docker:logs": "docker compose -f deploy/docker-compose.yml logs -f",
+    "docker:restart": "docker compose -f deploy/docker-compose.yml restart",
     "smoke": "sh scripts/smoke-test.sh",
     "agent:local": "npm run dev -w @nextops/agent",
     "nightly:codex": "zsh scripts/nightly-codex-dev.sh",
