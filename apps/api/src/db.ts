@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { PoolClient } from "pg";
 
 const { Pool } = pg;
 
@@ -17,6 +18,57 @@ export type ServerRecord = {
   diskUsage: number;
   loadAvg: number;
   tags: string[];
+};
+
+export type ServerInventoryRecord = {
+  serverId: string;
+  kernel: string;
+  cpuModel: string;
+  cpuCores: number;
+  memoryTotalMb: number;
+  diskTotalGb: number;
+  uptimeSeconds: number;
+  networkCards: string[];
+  bootTime: string;
+  collectedAt: string;
+};
+
+export type ServerMetricRecord = {
+  serverId: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
+  loadAvg: number;
+  collectedAt: string;
+  topProcesses: Array<{ pid: string; user: string; cpu: string; mem: string; command: string }>;
+  services: Array<{ name: string; active: string; sub: string; description: string }>;
+  recentLogs: string;
+  networkConnections: string;
+  diskDetails: Array<{ mount: string; size: string; used: string; avail: string; percent: string }>;
+};
+
+export type AgentRegistrationInput = {
+  agentId: string;
+  hostname: string;
+  ip: string;
+  os: string;
+  environment: string;
+  version: string;
+  tags: string[];
+  inventory: Omit<ServerInventoryRecord, "serverId" | "collectedAt">;
+};
+
+export type AgentMetricInput = {
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
+  loadAvg: number;
+  inventory?: Omit<ServerInventoryRecord, "serverId" | "collectedAt">;
+  topProcesses?: Array<{ pid: string; user: string; cpu: string; mem: string; command: string }>;
+  services?: Array<{ name: string; active: string; sub: string; description: string }>;
+  recentLogs?: string;
+  networkConnections?: string;
+  diskDetails?: Array<{ mount: string; size: string; used: string; avail: string; percent: string }>;
 };
 
 export type AlertRecord = {
@@ -52,6 +104,10 @@ export type AiModelRecord = {
   endpoint: string;
   apiKeyEnvName: string | null;
   apiKeyConfigured: boolean;
+};
+
+export type AiModelRuntimeRecord = AiModelRecord & {
+  apiKeySecret: string | null;
 };
 
 export type AiModelInput = {
@@ -879,109 +935,100 @@ const migrations = [
       create index if not exists audit_logs_resource_created_at_idx
         on audit_logs (resource_type, resource_id, created_at desc);
     `
+  },
+  {
+    id: "0007_agent_metrics",
+    sql: `
+      create table if not exists agent_instances (
+        id text primary key,
+        server_id text not null references servers(id) on delete cascade,
+        hostname text not null,
+        version text not null,
+        status text not null,
+        last_seen_at timestamptz not null default now(),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create table if not exists server_inventory (
+        server_id text primary key references servers(id) on delete cascade,
+        kernel text not null,
+        cpu_model text not null,
+        cpu_cores integer not null,
+        memory_total_mb integer not null,
+        disk_total_gb integer not null,
+        uptime_seconds integer not null,
+        network_cards text[] not null default '{}',
+        boot_time timestamptz not null,
+        collected_at timestamptz not null default now()
+      );
+
+      create table if not exists server_metrics (
+        id bigserial primary key,
+        server_id text not null references servers(id) on delete cascade,
+        cpu_usage integer not null,
+        memory_usage integer not null,
+        disk_usage integer not null,
+        load_avg numeric not null default 0,
+        collected_at timestamptz not null default now()
+      );
+
+      create index if not exists server_metrics_server_collected_idx
+        on server_metrics (server_id, collected_at desc);
+    `
+  },
+  {
+    id: "0008_extended_metrics",
+    sql: `
+      alter table server_metrics add column if not exists top_processes jsonb not null default '[]';
+      alter table server_metrics add column if not exists services jsonb not null default '[]';
+      alter table server_metrics add column if not exists recent_logs text not null default '';
+      alter table server_metrics add column if not exists network_connections text not null default '';
+      alter table server_metrics add column if not exists disk_details jsonb not null default '[]';
+    `
   }
 ];
 
 export async function initializeDatabase() {
   await runMigrations();
-
-  const serverCount = await pool.query<{ count: string }>("select count(*) from servers");
-  if (Number(serverCount.rows[0]?.count ?? 0) === 0) {
-    for (const server of demoServers) {
-      await createServer(server);
-    }
-  }
-
-  const alertCount = await pool.query<{ count: string }>("select count(*) from alerts");
-  if (Number(alertCount.rows[0]?.count ?? 0) === 0) {
-    for (const alert of demoAlerts) {
-      await pool.query(
-        `
-          insert into alerts (id, title, severity, status, source, server_id, triggered_at)
-          values ($1, $2, $3, $4, $5, $6, $7)
-          on conflict (id) do nothing
-        `,
-        [alert.id, alert.title, alert.severity, alert.status, alert.source, alert.serverId, alert.triggeredAt]
-      );
-    }
-  }
-
-  const scriptCount = await pool.query<{ count: string }>("select count(*) from scripts");
-  if (Number(scriptCount.rows[0]?.count ?? 0) === 0) {
-    for (const script of demoScripts) {
-      await pool.query(
-        `
-          insert into scripts (id, name, type, risk_level, version, success_rate)
-          values ($1, $2, $3, $4, $5, $6)
-          on conflict (id) do nothing
-        `,
-        [script.id, script.name, script.type, script.riskLevel, script.version, script.successRate]
-      );
-    }
-  }
-
-  const modelCount = await pool.query<{ count: string }>("select count(*) from ai_models");
-  if (Number(modelCount.rows[0]?.count ?? 0) === 0) {
-    for (const model of demoModels) {
-      await createAiModel(model);
-    }
-  }
-
+  await cleanupDemoData();
   await seedIdentityAccess();
-  await seedApprovalTickets();
   await seedOperationalCatalogs();
 }
 
+function shouldSeedDemoData(): boolean {
+  return process.env.SEED_DEMO_DATA !== "false";
+}
+
+async function cleanupDemoData() {
+  const result = await pool.query(
+    "delete from servers where id like 'srv-prod-%' or id like 'srv-stage-%'"
+  );
+  if (result.rowCount && result.rowCount > 0) {
+    console.log(`cleanupDemoData: removed ${result.rowCount} demo server(s)`);
+  }
+  await pool.query("delete from alerts");
+  await pool.query("delete from scripts");
+  await pool.query("delete from approval_tickets");
+  await pool.query("delete from packages");
+  await pool.query("delete from managed_files");
+  await pool.query("delete from tenants");
+  await pool.query("delete from ai_models");
+  await pool.query("delete from members");
+  await pool.query("delete from teams");
+}
+
 async function seedIdentityAccess() {
+  if (!shouldSeedDemoData()) {
+    return;
+  }
+
   const permissionCount = await pool.query<{ count: string }>("select count(*) from permissions");
   if (Number(permissionCount.rows[0]?.count ?? 0) === 0) {
     for (const permission of demoPermissions) {
       await pool.query(
         "insert into permissions (key, label, permission_group) values ($1, $2, $3) on conflict (key) do nothing",
         [permission.key, permission.label, permission.group]
-      );
-    }
-  }
-
-  const memberCount = await pool.query<{ count: string }>("select count(*) from members");
-  if (Number(memberCount.rows[0]?.count ?? 0) === 0) {
-    for (const member of demoMembers) {
-      await pool.query(
-        `
-          insert into members (id, name, email, role, team, status, last_seen_at, permissions)
-          values ($1, $2, $3, $4, $5, $6, $7, $8)
-          on conflict (id) do nothing
-        `,
-        [member.id, member.name, member.email, member.role, member.team, member.status, member.lastSeenAt, member.permissions]
-      );
-    }
-  }
-
-  const teamCount = await pool.query<{ count: string }>("select count(*) from teams");
-  if (Number(teamCount.rows[0]?.count ?? 0) === 0) {
-    for (const team of demoTeams) {
-      await pool.query(
-        `
-          insert into teams (
-            id, name, parent_id, team_type, status, lead, member_count, server_count,
-            approval_sla, description, responsibilities
-          )
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          on conflict (id) do nothing
-        `,
-        [
-          team.id,
-          team.name,
-          team.parentId,
-          team.type,
-          team.status,
-          team.lead,
-          team.memberCount,
-          team.serverCount,
-          team.approvalSla,
-          team.description,
-          team.responsibilities
-        ]
       );
     }
   }
@@ -1001,92 +1048,17 @@ async function seedIdentityAccess() {
   }
 }
 
-async function seedApprovalTickets() {
-  const approvalCount = await pool.query<{ count: string }>("select count(*) from approval_tickets");
-  if (Number(approvalCount.rows[0]?.count ?? 0) > 0) {
+async function seedOperationalCatalogs() {
+  if (!shouldSeedDemoData()) {
     return;
   }
 
-  for (const ticket of demoApprovalTickets) {
-    await pool.query(
-      `
-        insert into approval_tickets (
-          id, title, ticket_type, status, risk_level, requester, target, environment,
-          created_at, reviewed_at, reviewer, comment, summary, steps, related_resource
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        on conflict (id) do nothing
-      `,
-      [
-        ticket.id,
-        ticket.title,
-        ticket.type,
-        ticket.status,
-        ticket.riskLevel,
-        ticket.requester,
-        ticket.target,
-        ticket.environment,
-        ticket.createdAt,
-        ticket.reviewedAt,
-        ticket.reviewer,
-        ticket.comment,
-        ticket.summary,
-        ticket.steps,
-        ticket.relatedResource
-      ]
-    );
-  }
-}
-
-async function seedOperationalCatalogs() {
   const slashCommandCount = await pool.query<{ count: string }>("select count(*) from slash_commands");
   if (Number(slashCommandCount.rows[0]?.count ?? 0) === 0) {
     for (const item of demoSlashCommands) {
       await pool.query(
         "insert into slash_commands (command, description, example) values ($1, $2, $3) on conflict (command) do nothing",
         [item.command, item.description, item.example]
-      );
-    }
-  }
-
-  const packageCount = await pool.query<{ count: string }>("select count(*) from packages");
-  if (Number(packageCount.rows[0]?.count ?? 0) === 0) {
-    for (const item of demoPackages) {
-      await pool.query(
-        `
-          insert into packages (id, name, package_type, version, package_size, checksum, status)
-          values ($1, $2, $3, $4, $5, $6, $7)
-          on conflict (id) do nothing
-        `,
-        [item.id, item.name, item.type, item.version, item.size, item.checksum, item.status]
-      );
-    }
-  }
-
-  const fileCount = await pool.query<{ count: string }>("select count(*) from managed_files");
-  if (Number(fileCount.rows[0]?.count ?? 0) === 0) {
-    for (const item of demoManagedFiles) {
-      await pool.query(
-        `
-          insert into managed_files (id, name, file_path, file_type, file_size, source, updated_at)
-          values ($1, $2, $3, $4, $5, $6, $7)
-          on conflict (id) do nothing
-        `,
-        [item.id, item.name, item.path, item.type, item.size, item.source, item.updatedAt]
-      );
-    }
-  }
-
-  const tenantCount = await pool.query<{ count: string }>("select count(*) from tenants");
-  if (Number(tenantCount.rows[0]?.count ?? 0) === 0) {
-    for (const item of demoTenants) {
-      await pool.query(
-        `
-          insert into tenants (id, name, status, servers, alerts, ai_diagnoses_today, quota)
-          values ($1, $2, $3, $4, $5, $6, $7)
-          on conflict (id) do nothing
-        `,
-        [item.id, item.name, item.status, item.servers, item.alerts, item.aiDiagnosesToday, item.quota]
       );
     }
   }
@@ -1168,6 +1140,185 @@ export async function createServer(input: ServerRecord): Promise<ServerRecord> {
     ]
   );
   return mapServer(result.rows[0]);
+}
+
+export async function registerAgent(input: AgentRegistrationInput): Promise<ServerRecord> {
+  const serverId = `srv-local-${input.hostname.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const serverResult = await client.query(
+      `
+        insert into servers (
+          id, ip, port, hostname, environment, tenant, status, agent_status, os,
+          cpu_usage, memory_usage, disk_usage, load_avg, tags
+        )
+        values ($1, $2, 0, $3, $4, 'default', 'healthy', 'online', $5, 0, 0, 0, 0, $6)
+        on conflict (id) do update
+        set ip = excluded.ip,
+          hostname = excluded.hostname,
+          environment = excluded.environment,
+          status = 'healthy',
+          agent_status = 'online',
+          os = excluded.os,
+          tags = excluded.tags,
+          updated_at = now()
+        returning id, ip, port, hostname, environment, tenant, status, agent_status, os,
+          cpu_usage, memory_usage, disk_usage, load_avg, tags
+      `,
+      [serverId, input.ip, input.hostname, input.environment, input.os, input.tags]
+    );
+    await client.query(
+      `
+        insert into agent_instances (id, server_id, hostname, version, status, last_seen_at)
+        values ($1, $2, $3, $4, 'online', now())
+        on conflict (id) do update
+        set server_id = excluded.server_id,
+          hostname = excluded.hostname,
+          version = excluded.version,
+          status = 'online',
+          last_seen_at = now(),
+          updated_at = now()
+      `,
+      [input.agentId, serverId, input.hostname, input.version]
+    );
+    await upsertInventory(client, serverId, input.inventory);
+    await client.query("commit");
+    return mapServer(serverResult.rows[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function recordAgentMetrics(agentId: string, input: AgentMetricInput): Promise<ServerMetricRecord | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const agent = await client.query("select server_id from agent_instances where id = $1", [agentId]);
+    const serverId = agent.rows[0]?.server_id ? String(agent.rows[0].server_id) : null;
+    if (!serverId) {
+      await client.query("rollback");
+      return null;
+    }
+    await client.query(
+      `
+        update agent_instances
+        set status = 'online', last_seen_at = now(), updated_at = now()
+        where id = $1
+      `,
+      [agentId]
+    );
+    await client.query(
+      `
+        update servers
+        set agent_status = 'online',
+          status = case when $2 >= 90 or $3 >= 90 or $4 >= 90 then 'warning' else 'healthy' end,
+          cpu_usage = $2,
+          memory_usage = $3,
+          disk_usage = $4,
+          load_avg = $5,
+          updated_at = now()
+        where id = $1
+      `,
+      [serverId, input.cpuUsage, input.memoryUsage, input.diskUsage, input.loadAvg]
+    );
+    const metric = await client.query(
+      `
+        insert into server_metrics (server_id, cpu_usage, memory_usage, disk_usage, load_avg, top_processes, services, recent_logs, network_connections, disk_details)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        returning server_id, cpu_usage, memory_usage, disk_usage, load_avg, collected_at, top_processes, services, recent_logs, network_connections, disk_details
+      `,
+      [
+        serverId,
+        input.cpuUsage,
+        input.memoryUsage,
+        input.diskUsage,
+        input.loadAvg,
+        JSON.stringify(input.topProcesses ?? []),
+        JSON.stringify(input.services ?? []),
+        input.recentLogs ?? "",
+        input.networkConnections ?? "",
+        JSON.stringify(input.diskDetails ?? [])
+      ]
+    );
+    if (input.inventory) {
+      await upsertInventory(client, serverId, input.inventory);
+    }
+    await client.query("commit");
+    return mapServerMetric(metric.rows[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getServerInventory(serverId: string): Promise<ServerInventoryRecord | null> {
+  const result = await pool.query(
+    `
+      select server_id, kernel, cpu_model, cpu_cores, memory_total_mb, disk_total_gb,
+        uptime_seconds, network_cards, boot_time, collected_at
+      from server_inventory
+      where server_id = $1
+    `,
+    [serverId]
+  );
+  return result.rows[0] ? mapServerInventory(result.rows[0]) : null;
+}
+
+export async function getServerMetrics(serverId: string, limit = 12): Promise<ServerMetricRecord[]> {
+  const result = await pool.query(
+    `
+      select server_id, cpu_usage, memory_usage, disk_usage, load_avg, collected_at
+      from (
+        select server_id, cpu_usage, memory_usage, disk_usage, load_avg, collected_at
+        from server_metrics
+        where server_id = $1
+        order by collected_at desc
+        limit $2
+      ) recent
+      order by collected_at asc
+    `,
+    [serverId, limit]
+  );
+  return result.rows.map(mapServerMetric);
+}
+
+export async function getLatestExtendedMetrics(serverId: string): Promise<ServerMetricRecord | null> {
+  const result = await pool.query(
+    `
+      select server_id, cpu_usage, memory_usage, disk_usage, load_avg, collected_at,
+        top_processes, services, recent_logs, network_connections, disk_details
+      from server_metrics
+      where server_id = $1
+      order by collected_at desc
+      limit 1
+    `,
+    [serverId]
+  );
+  return result.rows[0] ? mapServerMetric(result.rows[0]) : null;
+}
+
+export async function getRecentMetricTrends(limit = 4): Promise<Array<{ label: string; cpu: number; memory: number; alerts: number }>> {
+  const result = await pool.query(
+    `
+      select collected_at, cpu_usage, memory_usage
+      from server_metrics
+      order by collected_at desc
+      limit $1
+    `,
+    [limit]
+  );
+  return result.rows.reverse().map((row) => ({
+    label: new Date(String(row.collected_at)).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
+    cpu: Number(row.cpu_usage),
+    memory: Number(row.memory_usage),
+    alerts: 0
+  }));
 }
 
 export async function getAlerts(): Promise<AlertRecord[]> {
@@ -1271,6 +1422,31 @@ export async function getAiModel(id: string): Promise<AiModelRecord | null> {
     [id]
   );
   return result.rows[0] ? mapAiModel(result.rows[0]) : null;
+}
+
+export async function getAiModelForRuntime(id: string): Promise<AiModelRuntimeRecord | null> {
+  const result = await pool.query(
+    `
+      select id, name, provider, model_type, status, is_default, context_window,
+        latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+      from ai_models
+      where id = $1
+    `,
+    [id]
+  );
+  return result.rows[0] ? mapAiModelRuntime(result.rows[0]) : null;
+}
+
+export async function getDefaultAiModelForRuntime(): Promise<AiModelRuntimeRecord | null> {
+  const result = await pool.query(`
+    select id, name, provider, model_type, status, is_default, context_window,
+      latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret
+    from ai_models
+    where status = 'enabled' and model_type = 'chat'
+    order by is_default desc, created_at asc
+    limit 1
+  `);
+  return result.rows[0] ? mapAiModelRuntime(result.rows[0]) : null;
 }
 
 export async function createAiModel(input: AiModelInput): Promise<AiModelRecord> {
@@ -1709,6 +1885,90 @@ function mapServer(row: Record<string, unknown>): ServerRecord {
   };
 }
 
+async function upsertInventory(
+  client: PoolClient,
+  serverId: string,
+  inventory: Omit<ServerInventoryRecord, "serverId" | "collectedAt">
+) {
+  await client.query(
+    `
+      insert into server_inventory (
+        server_id, kernel, cpu_model, cpu_cores, memory_total_mb, disk_total_gb,
+        uptime_seconds, network_cards, boot_time, collected_at
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+      on conflict (server_id) do update
+      set kernel = excluded.kernel,
+        cpu_model = excluded.cpu_model,
+        cpu_cores = excluded.cpu_cores,
+        memory_total_mb = excluded.memory_total_mb,
+        disk_total_gb = excluded.disk_total_gb,
+        uptime_seconds = excluded.uptime_seconds,
+        network_cards = excluded.network_cards,
+        boot_time = excluded.boot_time,
+        collected_at = now()
+    `,
+    [
+      serverId,
+      inventory.kernel,
+      inventory.cpuModel,
+      inventory.cpuCores,
+      inventory.memoryTotalMb,
+      inventory.diskTotalGb,
+      inventory.uptimeSeconds,
+      inventory.networkCards,
+      inventory.bootTime
+    ]
+  );
+}
+
+function mapServerInventory(row: Record<string, unknown>): ServerInventoryRecord {
+  return {
+    serverId: String(row.server_id),
+    kernel: String(row.kernel),
+    cpuModel: String(row.cpu_model),
+    cpuCores: Number(row.cpu_cores),
+    memoryTotalMb: Number(row.memory_total_mb),
+    diskTotalGb: Number(row.disk_total_gb),
+    uptimeSeconds: Number(row.uptime_seconds),
+    networkCards: Array.isArray(row.network_cards) ? row.network_cards.map(String) : [],
+    bootTime: new Date(String(row.boot_time)).toISOString(),
+    collectedAt: new Date(String(row.collected_at)).toISOString()
+  };
+}
+
+function mapServerMetric(row: Record<string, unknown>): ServerMetricRecord {
+  return {
+    serverId: String(row.server_id),
+    cpuUsage: Number(row.cpu_usage),
+    memoryUsage: Number(row.memory_usage),
+    diskUsage: Number(row.disk_usage),
+    loadAvg: Number(row.load_avg),
+    collectedAt: new Date(String(row.collected_at)).toISOString(),
+    topProcesses: parseJsonArray(row.top_processes) as ServerMetricRecord["topProcesses"],
+    services: parseJsonArray(row.services) as ServerMetricRecord["services"],
+    recentLogs: String(row.recent_logs ?? ""),
+    networkConnections: String(row.network_connections ?? ""),
+    diskDetails: parseJsonArray(row.disk_details) as ServerMetricRecord["diskDetails"]
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseJsonArray(value: unknown): any[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function mapAiModel(row: Record<string, unknown>): AiModelRecord {
   const envName = row.api_key_env_name ? String(row.api_key_env_name) : null;
   return {
@@ -1725,6 +1985,13 @@ function mapAiModel(row: Record<string, unknown>): AiModelRecord {
     endpoint: String(row.endpoint),
     apiKeyEnvName: envName,
     apiKeyConfigured: Boolean((envName && process.env[envName]) || row.api_key_secret)
+  };
+}
+
+function mapAiModelRuntime(row: Record<string, unknown>): AiModelRuntimeRecord {
+  return {
+    ...mapAiModel(row),
+    apiKeySecret: row.api_key_secret ? String(row.api_key_secret) : null
   };
 }
 

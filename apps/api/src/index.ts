@@ -1,11 +1,15 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import { generateDiagnosis, testModelConnectivity, type DiagnosisFallback } from "./ai.js";
+import { buildChatOpsPlan } from "./chatops.js";
 import {
   createAuditLog,
   createAiModel,
   createServer,
   createTaskRecord,
+  getRecentMetricTrends,
+  getAiModelForRuntime,
   getAiModel,
   getAiModels,
   getApprovalTickets,
@@ -15,6 +19,7 @@ import {
   getManagedFile,
   getManagedFiles,
   getMembers,
+  getDefaultAiModelForRuntime,
   getPackage,
   getPackages,
   getPermissions,
@@ -22,12 +27,17 @@ import {
   getScript,
   getScripts,
   getServer,
+  getServerInventory,
+  getServerMetrics,
+  getLatestExtendedMetrics,
   getServers,
   getSlashCommands,
   getTaskRecords,
   getTeams,
   getTenants,
   initializeDatabase,
+  recordAgentMetrics,
+  registerAgent,
   reviewApprovalTicket,
   setDefaultAiModel,
   toggleAiModel,
@@ -36,6 +46,8 @@ import {
   toggleRolePermission,
   toggleTeam,
   updateMemberRole,
+  type AgentMetricInput,
+  type AgentRegistrationInput,
   type AiModelInput,
   type ServerRecord
 } from "./db.js";
@@ -54,9 +66,18 @@ app.get("/health", (_req, res) => {
 
 app.get("/api/dashboard/summary", async (_req, res, next) => {
   try {
-    const [servers, alerts, scripts, slashCommands] = await Promise.all([getServers(), getAlerts(), getScripts(), getSlashCommands()]);
+    const [servers, alerts, scripts, slashCommands, tasks, trends] = await Promise.all([
+      getServers(),
+      getAlerts(),
+      getScripts(),
+      getSlashCommands(),
+      getTaskRecords(200),
+      getRecentMetricTrends()
+    ]);
     const onlineServers = servers.filter((server) => server.agentStatus === "online").length;
     const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").length;
+    const today = new Date().toISOString().slice(0, 10);
+    const aiDiagnosesToday = tasks.filter((task) => task.taskType.includes("diagnose") && task.createdAt.startsWith(today)).length;
 
     res.json({
       servers: {
@@ -73,48 +94,140 @@ app.get("/api/dashboard/summary", async (_req, res, next) => {
       automation: {
         slashCommands: slashCommands.length,
         scripts: scripts.length,
-        aiDiagnosesToday: 12
+        aiDiagnosesToday
       },
-      trends: [
-        { label: "00:00", cpu: 39, memory: 61, alerts: 1 },
-        { label: "04:00", cpu: 45, memory: 66, alerts: 1 },
-        { label: "08:00", cpu: 57, memory: 72, alerts: 2 },
-        { label: "12:00", cpu: 51, memory: 69, alerts: 1 }
-      ]
+      trends
     });
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/chatops/message", (req, res) => {
-  const message = String(req.body?.message ?? "").trim();
-  const lowered = message.toLowerCase();
-  const isSlash = message.startsWith("/");
-  const intent = lowered.includes("ssh")
-    ? "open_web_ssh"
-    : lowered.includes("diagnose") || message.includes("诊断")
-      ? "ai_diagnose"
-      : lowered.includes("deploy") || message.includes("部署")
-        ? "deployment_plan"
-        : "health_check";
+app.post("/api/chatops/message", async (req, res, next) => {
+  try {
+    const message = String(req.body?.message ?? "").trim();
+    if (!message) {
+      res.status(400).json({ message: "message is required" });
+      return;
+    }
 
-  res.json({
-    input: message,
-    intent,
-    riskLevel: intent === "deployment_plan" || intent === "open_web_ssh" ? "medium" : "low",
-    commandMode: isSlash,
-    plan: [
-      "识别目标资产和操作意图",
-      "校验当前用户权限与风险等级",
-      "关联最近指标、日志、告警和脚本",
-      "生成执行计划，等待人工确认"
-    ],
-    reply: isSlash
-      ? "已识别 Slash 指令。Demo 阶段先生成执行计划，后续会接入真实任务执行。"
-      : "已将自然语言转换为运维计划。请确认目标资产、风险和执行步骤。"
-  });
+    const useModel = req.body?.useModel !== false;
+    res.json(await createChatOpsResponse(message, useModel));
+  } catch (error) {
+    next(error);
+  }
 });
+
+app.post("/api/chatops/stream", async (req, res, next) => {
+  try {
+    const message = String(req.body?.message ?? "").trim();
+    if (!message) {
+      res.status(400).json({ message: "message is required" });
+      return;
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive"
+    });
+    writeStreamEvent(res, "status", { message: "正在理解请求并关联资产上下文..." });
+
+    const response = await createChatOpsResponse(message, req.body?.useModel !== false);
+    writeStreamEvent(res, "meta", {
+      intent: response.intent,
+      riskLevel: response.riskLevel,
+      mode: response.mode,
+      executionMode: response.executionMode,
+      taskId: response.taskId,
+      status: response.status,
+      warnings: response.warnings
+    });
+
+    const content = [
+      response.reply,
+      "",
+      "执行计划：",
+      ...response.plan.map((item: string, index: number) => `${index + 1}. ${item}`),
+      ...(response.warnings.length > 0 ? ["", "注意：", ...response.warnings.map((item: string) => `- ${item}`)] : [])
+    ].join("\n");
+
+    for (const chunk of chunkText(content, 18)) {
+      writeStreamEvent(res, "chunk", { text: chunk });
+      await wait(12);
+    }
+    writeStreamEvent(res, "done", response);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+async function createChatOpsResponse(message: string, useModel: boolean) {
+  const [servers, alerts, scripts, model] = await Promise.all([
+    getServers(),
+    getAlerts(),
+    getScripts(),
+    useModel ? getDefaultAiModelForRuntime() : Promise.resolve(null)
+  ]);
+  const plan = await buildChatOpsPlan({
+    message,
+    context: { servers, alerts, scripts },
+    model
+  });
+  const task = await createTaskRecord({
+    id: `task-${Date.now().toString(36)}`,
+    taskType: `chatops_${plan.intent}`,
+    status: plan.requiresApproval ? "waiting_approval" : "planned",
+    riskLevel: plan.riskLevel,
+    requiresApproval: plan.requiresApproval,
+    targetId: plan.targetId,
+    targetName: plan.targetName,
+    resourceId: plan.resourceId,
+    resourceName: plan.resourceName,
+    summary: plan.reply,
+    plan: plan.plan,
+    output: null
+  });
+  await createAuditLog({
+    action: "chatops.plan",
+    actor: "ops-admin",
+    resourceType: "task",
+    resourceId: task.id,
+    summary: `ChatOps 生成 ${plan.intent} 计划`,
+    details: { message, intent: plan.intent, mode: plan.mode, warnings: plan.warnings }
+  });
+
+  return {
+    input: message,
+    commandMode: message.startsWith("/"),
+    taskId: task.id,
+    status: task.status,
+    executionMode: "planned_only",
+    ...plan,
+    warnings: [
+      ...plan.warnings,
+      "当前 ChatOps 已接入意图编排和任务创建，但执行器尚未接入，不会直接操作真实主机。"
+    ]
+  };
+}
+
+function writeStreamEvent(res: express.Response, event: string, data: unknown) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function chunkText(value: string, size: number): string[] {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += size) {
+    chunks.push(value.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 app.get("/api/servers", async (_req, res, next) => {
   try {
@@ -170,35 +283,149 @@ app.post("/api/servers", async (req, res, next) => {
 
 app.get("/api/servers/:id", async (req, res, next) => {
   try {
-    const server = await getServer(req.params.id);
+    const [server, inventory, metrics, latest] = await Promise.all([
+      getServer(req.params.id),
+      getServerInventory(req.params.id),
+      getServerMetrics(req.params.id, Math.min(Number(req.query.limit) || 60, 360)),
+      getLatestExtendedMetrics(req.params.id)
+    ]);
     if (!server) {
       res.status(404).json({ message: "Server not found" });
       return;
     }
+    const hasRealMetrics = metrics.length > 0;
 
     res.json({
       ...server,
-      system: {
-        kernel: "6.5.0",
-        cpuModel: "Apple demo compatible x86_64",
-        cpuCores: 8,
-        memoryTotalMb: 16384,
-        diskTotalGb: 512,
-        uptimeDays: 24,
-        networkCards: ["eth0", "docker0"],
-        bootTime: "2026-04-17T08:12:00.000Z"
-      },
-      realtime: [
-        { label: "10:00", cpu: Math.max(8, server.cpuUsage - 10), memory: Math.max(12, server.memoryUsage - 9) },
-        { label: "10:05", cpu: Math.max(8, server.cpuUsage - 4), memory: Math.max(12, server.memoryUsage - 5) },
-        { label: "10:10", cpu: server.cpuUsage, memory: server.memoryUsage },
-        { label: "10:15", cpu: Math.min(96, server.cpuUsage + 7), memory: Math.min(96, server.memoryUsage + 4) }
-      ],
-      alertRules: [
-        { id: "rule-cpu-80", name: "CPU 使用率高于 80%", metric: "cpu_usage", threshold: 80, enabled: true },
-        { id: "rule-disk-85", name: "磁盘使用率高于 85%", metric: "disk_usage", threshold: 85, enabled: true }
-      ]
+      system: inventory
+        ? {
+            kernel: inventory.kernel,
+            cpuModel: inventory.cpuModel,
+            cpuCores: inventory.cpuCores,
+            memoryTotalMb: inventory.memoryTotalMb,
+            diskTotalGb: inventory.diskTotalGb,
+            uptimeDays: Math.floor(inventory.uptimeSeconds / 86400),
+            networkCards: inventory.networkCards,
+            bootTime: inventory.bootTime,
+            collectedAt: inventory.collectedAt
+          }
+        : {
+            kernel: "unknown",
+            cpuModel: "unknown",
+            cpuCores: 0,
+            memoryTotalMb: 0,
+            diskTotalGb: 0,
+            uptimeDays: 0,
+            networkCards: [],
+            bootTime: "",
+            collectedAt: ""
+          },
+      realtime: metrics.map((metric) => ({
+        label: new Date(metric.collectedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
+        cpu: metric.cpuUsage,
+        memory: metric.memoryUsage
+      })),
+      processes: latest?.topProcesses ?? [],
+      services: latest?.services ?? [],
+      logs: latest?.recentLogs ?? "",
+      network: latest?.networkConnections ?? "",
+      diskDetails: latest?.diskDetails ?? [],
+      alertRules: buildAlertRules(server.cpuUsage, server.memoryUsage, server.diskUsage),
+      dataMode: hasRealMetrics ? "agent_metrics" : "no_agent_metrics",
+      warnings: hasRealMetrics
+        ? []
+        : ["暂无 Agent 真实指标。请启动本机 Agent 后刷新页面。"]
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/servers/:id/processes", async (req, res, next) => {
+  try {
+    const latest = await getLatestExtendedMetrics(req.params.id);
+    res.json({ items: latest?.topProcesses ?? [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/servers/:id/services", async (req, res, next) => {
+  try {
+    const latest = await getLatestExtendedMetrics(req.params.id);
+    res.json({ items: latest?.services ?? [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/servers/:id/logs", async (req, res, next) => {
+  try {
+    const latest = await getLatestExtendedMetrics(req.params.id);
+    res.type("text/plain").send(latest?.recentLogs ?? "");
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/agents/register", async (req, res, next) => {
+  try {
+    const body = req.body as Partial<AgentRegistrationInput>;
+    const agentId = String(body.agentId ?? "").trim();
+    const hostname = String(body.hostname ?? "").trim();
+    const ip = String(body.ip ?? "127.0.0.1").trim();
+    const os = String(body.os ?? "unknown").trim();
+    const environment = String(body.environment ?? "local").trim();
+    const version = String(body.version ?? "0.1.0").trim();
+    const inventory = body.inventory;
+    if (!agentId || !hostname || !inventory) {
+      res.status(400).json({ message: "agentId, hostname and inventory are required" });
+      return;
+    }
+    const server = await registerAgent({
+      agentId,
+      hostname,
+      ip,
+      os,
+      environment,
+      version,
+      tags: Array.isArray(body.tags) ? body.tags.map(String) : ["local", "agent"],
+      inventory
+    });
+    await createAuditLog({
+      action: "agent.register",
+      actor: "local-agent",
+      resourceType: "server",
+      resourceId: server.id,
+      summary: `Agent 注册 ${server.hostname}`,
+      details: { agentId, version }
+    });
+    res.status(201).json({ server, agentId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/agents/:id/metrics", async (req, res, next) => {
+  try {
+    const input = req.body as Partial<AgentMetricInput>;
+    const metric = await recordAgentMetrics(req.params.id, {
+      cpuUsage: clampPercent(Number(input.cpuUsage ?? 0)),
+      memoryUsage: clampPercent(Number(input.memoryUsage ?? 0)),
+      diskUsage: clampPercent(Number(input.diskUsage ?? 0)),
+      loadAvg: Number(input.loadAvg ?? 0),
+      inventory: input.inventory,
+      topProcesses: Array.isArray(input.topProcesses) ? input.topProcesses : undefined,
+      services: Array.isArray(input.services) ? input.services : undefined,
+      recentLogs: typeof input.recentLogs === "string" ? input.recentLogs : undefined,
+      networkConnections: typeof input.networkConnections === "string" ? input.networkConnections : undefined,
+      diskDetails: Array.isArray(input.diskDetails) ? input.diskDetails : undefined
+    });
+    if (!metric) {
+      res.status(404).json({ message: "Agent not registered" });
+      return;
+    }
+    res.status(201).json(metric);
   } catch (error) {
     next(error);
   }
@@ -250,7 +477,9 @@ app.post("/api/servers/:id/agent/install-plan", async (req, res, next) => {
       riskLevel: task.riskLevel,
       steps,
       command: `curl -fsSL http://nextops.local/install-agent.sh | sudo NEXTOPS_SERVER=${server.id} bash`,
-      requiresApproval
+      requiresApproval,
+      executionMode: "planned_only",
+      warnings: ["当前只生成 Agent 安装计划，尚未真实连接 Web SSH 或执行安装命令。"]
     });
   } catch (error) {
     next(error);
@@ -266,8 +495,7 @@ app.post("/api/servers/:id/diagnose", async (req, res, next) => {
     }
 
     const pressure = Math.max(server.cpuUsage, server.memoryUsage, server.diskUsage);
-    res.json({
-      serverId: server.id,
+    const fallback: DiagnosisFallback = {
       summary:
         pressure >= 80
           ? `${server.hostname} 存在资源压力，建议优先检查内存、磁盘和最近部署。`
@@ -288,6 +516,27 @@ app.post("/api/servers/:id/diagnose", async (req, res, next) => {
         "必要时执行低风险清理或服务扩容",
         "修复后持续观察 15 分钟"
       ]
+    };
+    const diagnosis = await generateDiagnosis({
+      subject: "server",
+      context: {
+        server,
+        pressure,
+        telemetry: {
+          cpuUsage: server.cpuUsage,
+          memoryUsage: server.memoryUsage,
+          diskUsage: server.diskUsage,
+          loadAvg: server.loadAvg,
+          agentStatus: server.agentStatus
+        }
+      },
+      fallback,
+      model: await getDefaultAiModelForRuntime()
+    });
+
+    res.json({
+      serverId: server.id,
+      ...diagnosis
     });
   } catch (error) {
     next(error);
@@ -330,15 +579,8 @@ app.post("/api/alerts/:id/diagnose", async (req, res, next) => {
     }
 
     const isCritical = alert.severity === "critical";
-    res.json({
-      alertId: alert.id,
-      serverId: server.id,
+    const fallback: DiagnosisFallback = {
       summary: `${alert.title}。AI 已关联 ${server.hostname} 的指标、日志来源和资产配置，建议按影响范围优先处理。`,
-      impact: isCritical ? "可能影响生产服务稳定性，需要尽快确认。" : "当前影响可控，建议在观察窗口内处理。",
-      timeline: [
-        { time: alert.triggeredAt, event: "告警触发" },
-        { time: new Date().toISOString(), event: "AI 诊断生成" }
-      ],
       evidence: [
         `告警级别：${alert.severity}`,
         `告警来源：${alert.source}`,
@@ -353,6 +595,28 @@ app.post("/api/alerts/:id/diagnose", async (req, res, next) => {
         "检查关键日志和 top 进程，确认是否有异常任务",
         "必要时执行巡检脚本或生成 Agent 部署计划",
         "处理后持续观察并关闭或备注告警"
+      ]
+    };
+    const diagnosis = await generateDiagnosis({
+      subject: "alert",
+      context: {
+        alert,
+        server,
+        severity: alert.severity,
+        impact: isCritical ? "可能影响生产服务稳定性，需要尽快确认。" : "当前影响可控，建议在观察窗口内处理。"
+      },
+      fallback,
+      model: await getDefaultAiModelForRuntime()
+    });
+
+    res.json({
+      alertId: alert.id,
+      serverId: server.id,
+      ...diagnosis,
+      impact: isCritical ? "可能影响生产服务稳定性，需要尽快确认。" : "当前影响可控，建议在观察窗口内处理。",
+      timeline: [
+        { time: alert.triggeredAt, event: "告警触发" },
+        { time: new Date().toISOString(), event: "AI 诊断生成" }
       ]
     });
   } catch (error) {
@@ -414,13 +678,11 @@ app.post("/api/scripts/:id/run", async (req, res, next) => {
       requiresApproval ? "生产或中高风险操作进入审批" : "执行脚本并采集输出",
       "写入任务记录和审计日志"
     ];
-    const output = requiresApproval
-      ? "任务已生成，等待审批后执行。"
-      : `[${target.hostname}] script completed successfully\\ncpu=${target.cpuUsage}% memory=${target.memoryUsage}% disk=${target.diskUsage}%`;
+    const output = "任务已生成。当前脚本执行器尚未接入，不会真实连接目标服务器。";
     const task = await createTaskRecord({
       id: `task-${Date.now().toString(36)}`,
       taskType: "script_run",
-      status: requiresApproval ? "waiting_approval" : "success",
+      status: requiresApproval ? "waiting_approval" : "planned",
       riskLevel: script.riskLevel,
       requiresApproval,
       targetId: target.id,
@@ -450,11 +712,13 @@ app.post("/api/scripts/:id/run", async (req, res, next) => {
         ip: target.ip,
         environment: target.environment
       },
-      status: requiresApproval ? "waiting_approval" : "success",
+      status: requiresApproval ? "waiting_approval" : "planned",
       riskLevel: script.riskLevel,
       requiresApproval,
       plan,
-      output
+      output,
+      executionMode: "planned_only",
+      warnings: ["当前只创建脚本执行任务和审计记录，尚未真实执行脚本。"]
     });
   } catch (error) {
     next(error);
@@ -535,7 +799,9 @@ app.post("/api/packages/:id/deploy-plan", async (req, res, next) => {
       },
       requiresApproval,
       riskLevel: requiresApproval ? "medium" : "low",
-      steps
+      steps,
+      executionMode: "planned_only",
+      warnings: ["当前只生成包分发计划，尚未上传、校验或部署真实制品。"]
     });
   } catch (error) {
     next(error);
@@ -617,7 +883,9 @@ app.post("/api/files/:id/transfer-plan", async (req, res, next) => {
       },
       riskLevel,
       requiresApproval,
-      steps
+      steps,
+      executionMode: "planned_only",
+      warnings: ["当前只生成文件传输计划，尚未真实读写目标主机文件。"]
     });
   } catch (error) {
     next(error);
@@ -812,32 +1080,24 @@ app.post("/api/models/:id/toggle", async (req, res, next) => {
 
 app.post("/api/models/:id/test", async (req, res, next) => {
   try {
-  const model = await getAiModel(req.params.id);
+  const model = await getAiModelForRuntime(req.params.id);
     if (!model) {
       res.status(404).json({ message: "Model not found" });
       return;
     }
 
-  const keyConfigured = model.apiKeyConfigured;
-  const isLocal = model.provider.toLowerCase().includes("local") || model.endpoint.includes("localhost");
-  const warnings = [
-    !keyConfigured && !isLocal ? "未配置 API Key，远程模型调用会失败。" : "",
-    model.status !== "enabled" ? "模型当前未启用。" : ""
-  ].filter(Boolean);
+  const checkedAt = new Date().toISOString();
+  const startedAt = Date.now();
+  const connectivity = await testModelConnectivity({ model });
 
   res.json({
     modelId: model.id,
-    ok: warnings.length === 0,
-    status: warnings.length === 0 ? "reachable" : "attention",
-    latencyMs: model.latencyMs,
-    checkedAt: new Date().toISOString(),
-    checks: [
-      `Endpoint: ${model.endpoint}`,
-      `Provider: ${model.provider}`,
-      keyConfigured ? "API Key: configured" : isLocal ? "API Key: not required for local model" : "API Key: missing",
-      `Model status: ${model.status}`
-    ],
-    warnings
+    ok: connectivity.ok,
+    status: connectivity.status,
+    latencyMs: Date.now() - startedAt,
+    checkedAt,
+    checks: connectivity.checks,
+    warnings: connectivity.warnings
   });
   } catch (error) {
     next(error);
@@ -988,6 +1248,31 @@ function parseTags(value: unknown): string[] {
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildAlertRules(cpu: number, memory: number, disk: number) {
+  const rules = [
+    { id: "rule-cpu-80", name: "CPU 使用率高于 80%", metric: "cpu_usage", threshold: 80, enabled: true },
+    { id: "rule-cpu-90", name: "CPU 使用率高于 90%", metric: "cpu_usage", threshold: 90, enabled: true },
+    { id: "rule-mem-80", name: "内存使用率高于 80%", metric: "memory_usage", threshold: 80, enabled: true },
+    { id: "rule-mem-90", name: "内存使用率高于 90%", metric: "memory_usage", threshold: 90, enabled: true },
+    { id: "rule-disk-85", name: "磁盘使用率高于 85%", metric: "disk_usage", threshold: 85, enabled: true },
+    { id: "rule-disk-95", name: "磁盘使用率高于 95%", metric: "disk_usage", threshold: 95, enabled: true }
+  ];
+  return rules.map((rule) => {
+    let current = 0;
+    if (rule.metric === "cpu_usage") current = cpu;
+    else if (rule.metric === "memory_usage") current = memory;
+    else if (rule.metric === "disk_usage") current = disk;
+    return { ...rule, current, triggered: current >= rule.threshold };
+  });
 }
 
 function scriptDescription(id: string): string {

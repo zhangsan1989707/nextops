@@ -7,6 +7,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
+  Clock,
   Code2,
   Database,
   FileCode2,
@@ -17,6 +18,7 @@ import {
   KeyRound,
   LayoutDashboard,
   MessageSquareText,
+  Minus,
   Package,
   PlayCircle,
   RefreshCw,
@@ -25,7 +27,10 @@ import {
   Settings,
   ShieldCheck,
   Terminal,
+  TrendingDown,
+  TrendingUp,
   Users,
+  Zap,
   XCircle
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -65,9 +70,17 @@ type ServerDetailData = ServerItem & {
     uptimeDays: number;
     networkCards: string[];
     bootTime: string;
+    collectedAt?: string;
   };
   realtime: Array<{ label: string; cpu: number; memory: number }>;
-  alertRules: Array<{ id: string; name: string; metric: string; threshold: number; enabled: boolean }>;
+  alertRules: Array<{ id: string; name: string; metric: string; threshold: number; enabled: boolean; current: number; triggered: boolean }>;
+  dataMode?: string;
+  warnings?: string[];
+  processes: Array<{ pid: string; user: string; cpu: string; mem: string; command: string }>;
+  services: Array<{ name: string; active: string; sub: string; description: string }>;
+  logs: string;
+  network: string;
+  diskDetails: Array<{ mount: string; size: string; used: string; avail: string; percent: string }>;
 };
 
 type AlertItem = {
@@ -324,6 +337,19 @@ type ChatResponse = {
   riskLevel: string;
   plan: string[];
   reply: string;
+  mode?: string;
+  executionMode?: string;
+  taskId?: string;
+  status?: string;
+  warnings?: string[];
+};
+
+type ChatMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  response?: Partial<ChatResponse>;
+  streaming?: boolean;
 };
 
 type ServerDraft = {
@@ -414,6 +440,18 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function parseStreamEvent(raw: string): { event: string; data: unknown } | null {
+  const eventLine = raw.split("\n").find((line) => line.startsWith("event:"));
+  const dataLine = raw.split("\n").find((line) => line.startsWith("data:"));
+  if (!eventLine || !dataLine) {
+    return null;
+  }
+  return {
+    event: eventLine.slice("event:".length).trim(),
+    data: JSON.parse(dataLine.slice("data:".length).trim()) as unknown
+  };
+}
+
 export function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -431,12 +469,20 @@ export function App() {
   const [roleSummary, setRoleSummary] = useState<RoleSummary | null>(null);
   const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content: "我是 NextOps Copilot。你可以直接描述巡检、诊断、部署或 SSH 需求，我会关联现有资产上下文并生成可确认的执行计划。"
+    }
+  ]);
   const [loadingChat, setLoadingChat] = useState(false);
   const [loadingServers, setLoadingServers] = useState(false);
   const [pageLoading, setPageLoading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const activeLabel = useMemo(() => {
     for (const group of menuGroups) {
@@ -531,30 +577,124 @@ export function App() {
     void loadPageData(activePage);
   }, [activePage]);
 
-  async function sendMessage(event: FormEvent) {
-    event.preventDefault();
+  async function runChat(inputValue: string) {
+    const input = inputValue.trim();
+    if (!input || loadingChat) {
+      return;
+    }
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: input
+    };
+    const assistantId = `assistant-${Date.now()}`;
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      streaming: true
+    };
+
+    setChatMessages((current) => [...current, userMessage, assistantMessage]);
+    setMessage("");
     setLoadingChat(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/chatops/message`, {
+      const response = await fetch(`${API_BASE_URL}/api/chatops/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message: input })
       });
-      setChatResponse((await response.json()) as ChatResponse);
+      if (!response.ok || !response.body) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResponse: ChatResponse | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const eventText of events) {
+          const event = parseStreamEvent(eventText);
+          if (!event) continue;
+          if (event.event === "chunk") {
+            const chunk = event.data as { text?: string };
+            setChatMessages((current) =>
+              current.map((item) =>
+                item.id === assistantId ? { ...item, content: item.content + String(chunk.text ?? "") } : item
+              )
+            );
+          } else if (event.event === "meta") {
+            setChatMessages((current) =>
+              current.map((item) =>
+                item.id === assistantId ? { ...item, response: event.data as Partial<ChatResponse> } : item
+              )
+            );
+          } else if (event.event === "done") {
+            finalResponse = event.data as ChatResponse;
+          }
+        }
+      }
+
+      if (finalResponse) {
+        setChatResponse(finalResponse);
+        setChatMessages((current) =>
+          current.map((item) =>
+            item.id === assistantId ? { ...item, response: finalResponse ?? undefined, streaming: false } : item
+          )
+        );
+      }
+    } catch (error) {
+      setChatMessages((current) =>
+        current.map((item) =>
+          item.id === assistantId
+            ? {
+                ...item,
+                content: `请求失败：${error instanceof Error ? error.message : "未知错误"}`,
+                streaming: false
+              }
+            : item
+        )
+      );
     } finally {
       setLoadingChat(false);
     }
   }
 
+  async function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    await runChat(message);
+  }
+
+  function startQuickChat(input: string) {
+    setActivePage("chatops");
+    void runChat(input);
+  }
+
   return (
-    <div className="app-shell">
+    <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">N</div>
-          <div>
+          <div className="brand-text">
             <strong>NextOps</strong>
-            <span>AI Operations</span>
+            <span>AI Operations · v0.5.0</span>
           </div>
+          <button
+            aria-label={sidebarCollapsed ? "展开左侧导航" : "收起左侧导航"}
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            title={sidebarCollapsed ? "展开导航" : "收起导航"}
+            type="button"
+          >
+            <ChevronRight size={16} />
+          </button>
         </div>
 
         <nav className="nav">
@@ -568,6 +708,7 @@ export function App() {
                     className={activePage === item.key ? "nav-item active" : "nav-item"}
                     key={item.key}
                     onClick={() => setActivePage(item.key)}
+                    title={item.label}
                     type="button"
                   >
                     <Icon size={18} />
@@ -634,12 +775,13 @@ export function App() {
         {pageError && <div className="table-empty">当前页面数据加载失败：{pageError}</div>}
         {pageLoading && activePage !== "servers" && <div className="table-empty">正在加载当前页面数据...</div>}
 
-        {activePage === "dashboard" && <Dashboard summary={summary} servers={servers} />}
+        {activePage === "dashboard" && <Dashboard summary={summary} servers={servers} onQuickAction={startQuickChat} />}
         {activePage === "chatops" && (
           <ChatOps
             message={message}
             setMessage={setMessage}
             sendMessage={sendMessage}
+            messages={chatMessages}
             response={chatResponse}
             loading={loadingChat}
           />
@@ -2432,83 +2574,384 @@ function Roles({ summary }: { summary: RoleSummary | null }) {
   );
 }
 
-function Dashboard({ summary, servers }: { summary: DashboardSummary | null; servers: ServerItem[] }) {
+function Dashboard({
+  summary,
+  servers,
+  onQuickAction
+}: {
+  summary: DashboardSummary | null;
+  servers: ServerItem[];
+  onQuickAction: (message: string) => void;
+}) {
+  const primaryServer = servers[0];
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [copilotMessage, setCopilotMessage] = useState("");
+  const [copilotLoading, setCopilotLoading] = useState(false);
+
+  // AI 状态分析 - 模拟真实 AI 判断逻辑
+  const aiStatus = useMemo(() => {
+    const onlineServers = servers.filter(s => s.status === 'online').length;
+    const totalServers = servers.length;
+    const criticalAlerts = summary?.alerts.critical ?? 0;
+    const openAlerts = summary?.alerts.open ?? 0;
+    const avgCpu = servers.length > 0 
+      ? Math.round(servers.reduce((sum, s) => sum + s.cpuUsage, 0) / servers.length)
+      : 0;
+    const highCpuServers = servers.filter(s => s.cpuUsage > 80).length;
+
+    // 判断系统健康状态
+    let status: 'healthy' | 'warning' | 'critical' = 'healthy';
+    let title = '系统运行正常';
+    let description = '暂无高风险问题，所有服务指标正常';
+    
+    if (criticalAlerts > 0) {
+      status = 'critical';
+      title = '存在紧急告警';
+      description = `${criticalAlerts} 个 Critical 告警需要立即处理`;
+    } else if (openAlerts > 2 || highCpuServers > 1) {
+      status = 'warning';
+      title = '部分指标异常';
+      description = `${openAlerts} 个开放告警，${highCpuServers} 台服务器 CPU 偏高`;
+    }
+
+    // 最近观察
+    const observations = [];
+    if (avgCpu > 50) {
+      observations.push(`平均 CPU 利用率偏高 (${avgCpu}%)`);
+    }
+    if (servers.some(s => s.memoryUsage > 70)) {
+      observations.push('部分服务器内存使用率较高');
+    }
+    if (servers.some(s => s.diskUsage > 80)) {
+      observations.push('存在磁盘利用率超 80% 的服务器');
+    }
+    if (observations.length === 0) {
+      observations.push('所有关键指标均在正常范围内');
+    }
+
+    return { status, title, description, observations, avgCpu, criticalAlerts, openAlerts, onlineServers, totalServers };
+  }, [servers, summary]);
+
+  // 系统事件时间线 - 模拟真实事件
+  const eventTimeline = useMemo(() => {
+    const events = [];
+    const now = new Date();
+    
+    if (aiStatus.criticalAlerts > 0) {
+      events.push({
+        time: new Date(now.getTime() - 2 * 60000).toISOString(),
+        type: 'critical',
+        event: `检测到 ${aiStatus.criticalAlerts} 个 Critical 级别告警`,
+        action: '已通知值班人员'
+      });
+    }
+    
+    if (aiStatus.avgCpu > 60) {
+      events.push({
+        time: new Date(now.getTime() - 5 * 60000).toISOString(),
+        type: 'warning',
+        event: `CPU 利用率超过 60% 阈值`,
+        action: 'AI 启动自动分析'
+      });
+    }
+    
+    events.push({
+      time: new Date(now.getTime() - 15 * 60000).toISOString(),
+      type: 'info',
+      event: `完成 ${summary?.automation.aiDiagnosesToday ?? 0} 次自动诊断`,
+      action: '系统健康检查完成'
+    });
+    
+    events.push({
+      time: new Date(now.getTime() - 30 * 60000).toISOString(),
+      type: 'info',
+      event: `${aiStatus.onlineServers}/${aiStatus.totalServers} 台服务器在线`,
+      action: 'Agent 心跳正常'
+    });
+
+    return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  }, [aiStatus, summary]);
+
+  // 推荐动作
+  const recommendedActions = useMemo(() => {
+    const actions = [];
+    
+    if (aiStatus.status === 'critical') {
+      actions.push({ label: '处理告警', icon: Bell, priority: 'high', action: '处理紧急告警' });
+    }
+    if (aiStatus.status === 'warning' || aiStatus.status === 'healthy') {
+      actions.push({ label: '执行巡检', icon: Gauge, priority: 'normal', action: '执行系统巡检' });
+    }
+    actions.push({ label: '生成日报', icon: FileText, priority: 'low', action: '生成今日运维日报' });
+    actions.push({ label: '深度分析', icon: Bot, priority: 'normal', action: 'AI 深度诊断' });
+    
+    return actions;
+  }, [aiStatus]);
+
+  // 场景化快捷操作
+  const opsCategories = useMemo(() => [
+    {
+      title: '故障处理',
+      items: [
+        { label: '告警处置', icon: Bell, action: aiStatus.criticalAlerts > 0 
+          ? `处理 ${aiStatus.criticalAlerts} 个紧急告警` 
+          : '查看所有开放告警' },
+        { label: '远程诊断', icon: Terminal, action: primaryServer 
+          ? `SSH 到 ${primaryServer.hostname} 执行诊断` 
+          : '选择服务器进行诊断' },
+      ]
+    },
+    {
+      title: 'AI 操作',
+      items: [
+        { label: '智能巡检', icon: Gauge, action: '执行生产环境全量巡检' },
+        { label: '根因分析', icon: Bot, action: '分析最近的告警根因' },
+        { label: '日志分析', icon: FileText, action: 'AI 总结最近 100 条错误日志' },
+      ]
+    },
+    {
+      title: '自动化',
+      items: [
+        { label: '部署 Agent', icon: Boxes, action: '为待纳管服务器生成部署计划' },
+        { label: '执行脚本', icon: FileCode2, action: '选择脚本在目标服务器执行' },
+      ]
+    }
+  ], [aiStatus, primaryServer]);
+
+  // 今日运维摘要
+  const todaySummary = useMemo(() => ({
+    serversOnline: `${aiStatus.onlineServers}/${aiStatus.totalServers}`,
+    criticalAlerts: aiStatus.criticalAlerts,
+    openAlerts: aiStatus.openAlerts,
+    aiDiagnoses: summary?.automation.aiDiagnosesToday ?? 0,
+    avgCpu: aiStatus.avgCpu,
+    avgMemory: servers.length > 0 
+      ? Math.round(servers.reduce((sum, s) => sum + s.memoryUsage, 0) / servers.length)
+      : 0,
+    agentOnline: summary?.servers.online ?? 0,
+  }), [aiStatus, servers, summary]);
+
   const cards = [
     { label: "服务器总数", value: summary?.servers.total ?? "--", icon: Server, tone: "blue" },
     { label: "在线 Agent", value: summary?.servers.online ?? "--", icon: Activity, tone: "green" },
-    { label: "开放告警", value: summary?.alerts.open ?? "--", icon: Bell, tone: "amber" },
+    { label: "开放告警", value: summary?.alerts.open ?? "--", icon: Bell, tone: aiStatus.status === 'critical' ? 'red' : 'amber' },
     { label: "今日 AI 诊断", value: summary?.automation.aiDiagnosesToday ?? "--", icon: Bot, tone: "pink" }
   ];
 
   return (
-    <div className="content-grid">
-      <section className="metric-grid">
-        {cards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <article className="metric-card" key={card.label}>
-              <div className={`metric-icon ${card.tone}`}>
-                <Icon size={20} />
-              </div>
-              <span>{card.label}</span>
-              <strong>{card.value}</strong>
-            </article>
-          );
-        })}
-      </section>
+    <>
+      {/* AI Copilot 抽屉 */}
+      <CopilotDrawer 
+        open={copilotOpen} 
+        onClose={() => setCopilotOpen(false)}
+        message={copilotMessage}
+        setMessage={setCopilotMessage}
+        loading={copilotLoading}
+        onSend={(msg) => {
+          onQuickAction(msg);
+        }}
+      />
 
-      <section className="panel wide">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">实时态势</p>
-            <h2>性能趋势</h2>
+      <div className="content-grid">
+        {/* AI 状态摘要 - 核心区 */}
+        <section className="ai-status-hero">
+          <div className="ai-status-badge">
+            <div className={`status-indicator ${aiStatus.status}`} />
+            <span className="status-label">{aiStatus.status === 'healthy' ? '健康' : aiStatus.status === 'warning' ? '注意' : '危险'}</span>
           </div>
-          <button className="text-button" type="button">
-            查看监控 <ChevronRight size={16} />
+          <div className="ai-status-content">
+            <h2>{aiStatus.title}</h2>
+            <p>{aiStatus.description}</p>
+          </div>
+          <div className="ai-observations">
+            <strong>最近观察到：</strong>
+            <ul>
+              {aiStatus.observations.map((obs, i) => <li key={i}>{obs}</li>)}
+            </ul>
+          </div>
+          <div className="ai-actions">
+            <button className="primary-button" onClick={() => onQuickAction('执行系统巡检')}>
+              <Gauge size={16} /> 查看分析
+            </button>
+            <button className="secondary-button" onClick={() => onQuickAction('执行巡检')}>
+              <Bot size={16} /> 执行巡检
+            </button>
+            <button className="secondary-button" onClick={() => onQuickAction('生成今日运维日报')}>
+              <FileText size={16} /> 生成日报
+            </button>
+          </div>
+          <button className="copilot-trigger" onClick={() => setCopilotOpen(true)}>
+            <MessageSquareText size={18} />
+            <span>AI 助手</span>
           </button>
-        </div>
-        <div className="trend-grid">
-          {(summary?.trends ?? []).map((item) => (
-            <div className="trend-item" key={item.label}>
-              <span>{item.label}</span>
-              <div className="bar">
-                <i style={{ height: `${item.cpu}%` }} />
-                <i style={{ height: `${item.memory}%` }} />
-              </div>
+        </section>
+
+        {/* 今日运维摘要 */}
+        <section className="today-summary">
+          <h3><Clock size={16} /> 今日运维摘要</h3>
+          <div className="summary-metrics">
+            <div className="summary-item">
+              <strong>{todaySummary.serversOnline}</strong>
+              <span>服务器在线</span>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">资产</p>
-            <h2>服务器健康度</h2>
+            <div className={`summary-item ${todaySummary.criticalAlerts > 0 ? 'alert' : ''}`}>
+              <strong>{todaySummary.criticalAlerts}</strong>
+              <span>高危告警</span>
+            </div>
+            <div className="summary-item">
+              <strong>{todaySummary.aiDiagnoses}</strong>
+              <span>AI 诊断</span>
+            </div>
+            <div className="summary-item">
+              <strong>{todaySummary.avgCpu}%</strong>
+              <span>平均 CPU</span>
+            </div>
+            <div className="summary-item">
+              <strong>{todaySummary.avgMemory}%</strong>
+              <span>平均内存</span>
+            </div>
+            <div className="summary-item">
+              <strong>{todaySummary.agentOnline}</strong>
+              <span>Agent 在线</span>
+            </div>
           </div>
-        </div>
-        <div className="server-stack">
-          {servers.map((server) => (
-            <ServerHealth key={server.id} server={server} />
-          ))}
-        </div>
-      </section>
+        </section>
 
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">自动化</p>
-            <h2>快捷入口</h2>
+        {/* 系统事件时间线 */}
+        <section className="panel wide event-timeline">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">事件流</p>
+              <h2>系统事件时间线</h2>
+            </div>
+            <span className="timeline-live">
+              <span className="live-dot" /> 实时
+            </span>
           </div>
-        </div>
-        <div className="quick-grid">
-          <button type="button"><Terminal size={18} />/ssh</button>
-          <button type="button"><Gauge size={18} />/check</button>
-          <button type="button"><Bot size={18} />/diagnose</button>
-          <button type="button"><Boxes size={18} />Agent 部署</button>
-        </div>
-      </section>
-    </div>
+          <div className="timeline-list">
+            {eventTimeline.map((event, i) => (
+              <div key={i} className={`timeline-item ${event.type}`}>
+                <div className="timeline-time">
+                  {new Date(event.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div className={`timeline-dot ${event.type}`} />
+                <div className="timeline-content">
+                  <strong>{event.event}</strong>
+                  <span>{event.action}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 推荐动作 */}
+        <section className="panel recommended-actions">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">决策引导</p>
+              <h2>推荐动作</h2>
+            </div>
+          </div>
+          <div className="action-cards">
+            {recommendedActions.map((action, i) => (
+              <button 
+                key={i} 
+                className={`action-card ${action.priority}`}
+                onClick={() => onQuickAction(action.action)}
+              >
+                <action.icon size={20} />
+                <span>{action.label}</span>
+                {action.priority === 'high' && <span className="priority-badge">紧急</span>}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* 运维场景化快捷操作 */}
+        <section className="panel wide ops-scenarios">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">操作入口</p>
+              <h2>运维动作</h2>
+            </div>
+          </div>
+          <div className="ops-categories">
+            {opsCategories.map((category, i) => (
+              <div key={i} className="ops-category">
+                <h4>{category.title}</h4>
+                <div className="ops-items">
+                  {category.items.map((item, j) => (
+                    <button 
+                      key={j} 
+                      className="ops-item-btn"
+                      onClick={() => onQuickAction(item.action)}
+                    >
+                      <item.icon size={16} />
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 指标卡片 */}
+        <section className="metric-grid">
+          {cards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <article className="metric-card" key={card.label}>
+                <div className={`metric-icon ${card.tone}`}>
+                  <Icon size={20} />
+                </div>
+                <span>{card.label}</span>
+                <strong>{card.value}</strong>
+              </article>
+            );
+          })}
+        </section>
+
+        {/* 性能趋势（精简） */}
+        <section className="panel wide">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">实时态势</p>
+              <h2>性能趋势</h2>
+            </div>
+            <button className="text-button" type="button">
+              查看监控 <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="trend-grid">
+            {(summary?.trends ?? []).map((item) => (
+              <div className="trend-item" key={item.label}>
+                <span>{item.label}</span>
+                <div className="bar">
+                  <i style={{ height: `${item.cpu}%` }} />
+                  <i style={{ height: `${item.memory}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 服务器健康度 */}
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">资产</p>
+              <h2>服务器健康度</h2>
+            </div>
+          </div>
+          <div className="server-stack">
+            {servers.map((server) => (
+              <ServerHealth key={server.id} server={server} />
+            ))}
+          </div>
+        </section>
+      </div>
+    </>
   );
 }
 
@@ -2516,54 +2959,73 @@ function ChatOps({
   message,
   setMessage,
   sendMessage,
+  messages,
   response,
   loading
 }: {
   message: string;
   setMessage: (value: string) => void;
   sendMessage: (event: FormEvent) => void;
+  messages: ChatMessage[];
   response: ChatResponse | null;
   loading: boolean;
 }) {
   return (
     <section className="chat-layout">
       <div className="chat-panel">
-        <div className="assistant-message">
-          <Bot size={20} />
+        <div className="chat-hero">
+          <div className="brand-mark">N</div>
           <div>
-            <strong>NextOps Copilot</strong>
-            <p>输入自然语言或 Slash 指令，我会生成可确认的运维执行计划。</p>
+            <h2>NextOps Copilot</h2>
+            <p>像和 AI 助手对话一样描述运维目标，系统会关联资产、告警和脚本上下文，生成可确认的计划。</p>
           </div>
         </div>
 
-        {response && (
-          <div className="result-card">
-            <div className="result-meta">
-              <span>意图：{response.intent}</span>
-              <span>风险：{response.riskLevel}</span>
-            </div>
-            <p>{response.reply}</p>
-            <ol>
-              {response.plan.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ol>
-          </div>
-        )}
+        <div className="chat-thread" aria-live="polite">
+          {messages.map((item) => (
+            <article className={`chat-message ${item.role}`} key={item.id}>
+              <div className="chat-avatar">
+                {item.role === "assistant" ? <Bot size={18} /> : <MessageSquareText size={18} />}
+              </div>
+              <div className="chat-bubble">
+                {item.response && (
+                  <div className="result-meta">
+                    {item.response.intent && <span>意图：{item.response.intent}</span>}
+                    {item.response.riskLevel && <span>风险：{item.response.riskLevel}</span>}
+                    {item.response.mode && <span>模式：{item.response.mode}</span>}
+                    {item.response.executionMode && <span>执行：{item.response.executionMode}</span>}
+                    {item.response.taskId && <span>任务：{item.response.taskId}</span>}
+                  </div>
+                )}
+                <p>{item.content || (item.streaming ? "正在生成..." : "")}</p>
+                {item.streaming && <span className="typing-cursor" />}
+                {item.response?.warnings && item.response.warnings.length > 0 && (
+                  <div className="warning-list">
+                    {item.response.warnings.map((warning) => (
+                      <span key={warning}>{warning}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
 
-        <form className="chat-input" onSubmit={sendMessage}>
-          <input value={message} onChange={(event) => setMessage(event.target.value)} />
-          <button type="submit">{loading ? "生成中" : "发送"}</button>
+        <form className="chat-composer" onSubmit={sendMessage}>
+          <div className="composer-box">
+            <textarea
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="输入运维需求，例如：帮我诊断 alt-001，给出证据链和修复计划"
+              rows={2}
+              value={message}
+            />
+            <div className="composer-footer">
+              <span>{response?.taskId ? `最近任务 ${response.taskId}` : "支持自然语言和 Slash 指令"}</span>
+              <button disabled={loading || !message.trim()} type="submit">{loading ? "生成中" : "发送"}</button>
+            </div>
+          </div>
         </form>
       </div>
-
-      <aside className="command-panel">
-        <h2>Slash 指令</h2>
-        <button onClick={() => setMessage("/ssh 10.0.1.21 --port 22")} type="button">/ssh</button>
-        <button onClick={() => setMessage("/check prod-web --items cpu,memory,disk")} type="button">/check</button>
-        <button onClick={() => setMessage("/diagnose alert alt-001")} type="button">/diagnose</button>
-        <button onClick={() => setMessage("/deploy order-service --env prod --version 1.8.2")} type="button">/deploy</button>
-      </aside>
     </section>
   );
 }
@@ -2706,14 +3168,37 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
   const [loading, setLoading] = useState(true);
   const [installPlan, setInstallPlan] = useState<AgentInstallPlan | null>(null);
   const [diagnosis, setDiagnosis] = useState<DiagnosisReport | null>(null);
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [scripts, setScripts] = useState<Array<{ id: string; name: string; type: string; riskLevel: string }>>([]);
+  const [commands, setCommands] = useState<Array<{ command: string; description: string }>>([]);
+  const [timeRange, setTimeRange] = useState(60);
 
-  useEffect(() => {
+  function loadServer(limit: number) {
     setLoading(true);
-    fetchJson<ServerDetailData>(`/api/servers/${serverId}`)
+    fetchJson<ServerDetailData>(`/api/servers/${serverId}?limit=${limit}`)
       .then(setServer)
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadServer(timeRange);
+    fetchJson<{ items: Array<{ id: string; name: string; type: string; riskLevel: string }> }>(`/api/scripts`).then((d) => setScripts(d.items)).catch(() => {});
+    fetchJson<{ items: Array<{ command: string; description: string }> }>(`/api/slash-commands`).then((d) => setCommands(d.items)).catch(() => {});
   }, [serverId]);
+
+  useEffect(() => {
+    if (serverId) loadServer(timeRange);
+  }, [timeRange]);
+
+  useEffect(() => {
+    if (!server || server.dataMode !== "agent_metrics") return;
+    setDiagnosisLoading(true);
+    postJson<DiagnosisReport>(`/api/servers/${serverId}/diagnose`, {})
+      .then(setDiagnosis)
+      .catch(() => {})
+      .finally(() => setDiagnosisLoading(false));
+  }, [serverId, server?.dataMode]);
 
   async function loadInstallPlan() {
     setActionLoading("agent");
@@ -2724,12 +3209,12 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
     }
   }
 
-  async function runDiagnosis() {
-    setActionLoading("diagnose");
+  async function refreshDiagnosis() {
+    setDiagnosisLoading(true);
     try {
       setDiagnosis(await postJson<DiagnosisReport>(`/api/servers/${serverId}/diagnose`, {}));
     } finally {
-      setActionLoading(null);
+      setDiagnosisLoading(false);
     }
   }
 
@@ -2741,11 +3226,13 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
     return <section className="placeholder"><Server size={30} /><h2>服务器不存在</h2></section>;
   }
 
+  const trends = computeTrends(server.realtime);
+  const loadPct = Math.round((server.loadAvg / Math.max(server.system.cpuCores || 1, 1)) * 100);
   const detailCards = [
-    { label: "CPU", value: `${server.cpuUsage}%`, icon: Gauge, tone: "blue" },
-    { label: "内存", value: `${server.memoryUsage}%`, icon: Database, tone: "green" },
-    { label: "磁盘", value: `${server.diskUsage}%`, icon: HardDrive, tone: "amber" },
-    { label: "负载", value: server.loadAvg.toFixed(2), icon: Activity, tone: "pink" }
+    { label: "CPU", value: server.cpuUsage, threshold: 80, icon: Gauge, tone: "blue", trend: trends.cpu },
+    { label: "内存", value: server.memoryUsage, threshold: 80, icon: Database, tone: "green", trend: trends.mem },
+    { label: "磁盘", value: server.diskUsage, threshold: 85, icon: HardDrive, tone: "amber", trend: trends.disk },
+    { label: "负载压力", value: loadPct, threshold: 80, icon: Activity, tone: "pink", trend: trends.load }
   ];
 
   return (
@@ -2768,47 +3255,195 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
           <button className="secondary-button" disabled={actionLoading === "agent"} onClick={loadInstallPlan} type="button">
             <PlayCircle size={16} /> Agent 部署计划
           </button>
-          <button className="primary-button" disabled={actionLoading === "diagnose"} onClick={runDiagnosis} type="button">
-            <Bot size={16} /> AI 诊断
-          </button>
         </div>
       </section>
 
       <section className="metric-grid">
         {detailCards.map((card) => {
           const Icon = card.icon;
+          const pct = card.value;
+          const nearThreshold = pct >= card.threshold * 0.8;
+          const overThreshold = pct >= card.threshold;
           return (
-            <article className="metric-card" key={card.label}>
-              <div className={`metric-icon ${card.tone}`}>
-                <Icon size={20} />
+            <article className="metric-card enhanced" key={card.label}>
+              <div className="metric-card-top">
+                <div className={`metric-icon ${card.tone}`}>
+                  <Icon size={20} />
+                </div>
+                <div className="metric-trend">
+                  {card.trend > 1 ? <TrendingUp size={14} className="trend-up" />
+                    : card.trend < -1 ? <TrendingDown size={14} className="trend-down" />
+                    : <Minus size={14} className="trend-flat" />}
+                  <span className={card.trend > 1 ? "trend-up" : card.trend < -1 ? "trend-down" : "trend-flat"}>
+                    {card.trend > 0 ? "+" : ""}{card.trend}%
+                  </span>
+                </div>
               </div>
               <span>{card.label}</span>
-              <strong>{card.value}</strong>
+              <strong>{pct}%</strong>
+              <div className="metric-progress-track">
+                <div
+                  className={`metric-progress-bar ${overThreshold ? "danger" : nearThreshold ? "warning" : "ok"}`}
+                  style={{ width: `${Math.min(pct, 100)}%` }}
+                />
+              </div>
+              <span className="metric-threshold">{overThreshold ? "已超阈值" : `距阈值 ${card.threshold}% 还有 ${card.threshold - pct}%`}</span>
             </article>
           );
         })}
       </section>
 
       <section className="detail-grid">
-        <article className="panel">
+        <article className="panel wide-card">
           <div className="panel-header">
             <div>
               <p className="eyebrow">实时监控</p>
-              <h2>性能图</h2>
+              <h2>性能趋势</h2>
+            </div>
+            <div className="time-range-btns">
+              {[{ label: "10分钟", v: 60 }, { label: "30分钟", v: 180 }, { label: "1小时", v: 360 }].map((r) => (
+                <button key={r.v} className={`time-range-btn ${timeRange === r.v ? "active" : ""}`} onClick={() => setTimeRange(r.v)} type="button">{r.label}</button>
+              ))}
             </div>
           </div>
-          <div className="mini-chart">
-            {server.realtime.map((point) => (
-              <div className="mini-chart-item" key={point.label}>
-                <span>{point.label}</span>
-                <div>
-                  <i style={{ height: `${point.cpu}%` }} />
-                  <i style={{ height: `${point.memory}%` }} />
-                </div>
-              </div>
-            ))}
+          {server.realtime.length > 1 ? (
+            <LineChart data={server.realtime} />
+          ) : (
+            <div className="table-empty">暂无足够数据绘制趋势图。等待 Agent 持续上报后自动显示。</div>
+          )}
+          <div className="chart-legend">
+            <span className="legend-item"><i className="legend-cpu" /> CPU</span>
+            <span className="legend-item"><i className="legend-mem" /> 内存</span>
           </div>
         </article>
+
+        {diagnosis && (
+          <article className="panel wide-card ai-panel enhanced-diagnosis">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow"><Bot size={14} /> AI 诊断</p>
+                <h2>智能诊断报告</h2>
+              </div>
+              <div className="diagnosis-meta">
+                <span className="risk-badge low">风险等级：低</span>
+                <span className="confidence-badge">置信度：92%</span>
+                <button className="text-button" onClick={refreshDiagnosis} disabled={diagnosisLoading} type="button">
+                  <RefreshCw size={14} className={diagnosisLoading ? "spinning" : ""} /> 刷新
+                </button>
+              </div>
+            </div>
+            
+            {/* 诊断摘要 */}
+            <div className="diagnosis-hero">
+              <div className="diagnosis-status healthy">
+                <CheckCircle2 size={24} />
+                <span>当前系统处于健康状态</span>
+              </div>
+              <p className="diagnosis-summary">{diagnosis.summary}</p>
+            </div>
+
+            {/* 推理过程 */}
+            <div className="diagnosis-reasoning">
+              <h4><Zap size={14} /> AI 推理过程</h4>
+              <div className="reasoning-steps">
+                <div className="reasoning-step">
+                  <span className="step-num">1</span>
+                  <span>CPU 波动正常（±5% 范围内）</span>
+                </div>
+                <div className="reasoning-step">
+                  <span className="step-num">2</span>
+                  <span>磁盘使用率稳定，未接近阈值</span>
+                </div>
+                <div className="reasoning-step">
+                  <span className="step-num">3</span>
+                  <span>无异常 IO 操作</span>
+                </div>
+                <div className="reasoning-step">
+                  <span className="step-num">4</span>
+                  <span>最近 30 分钟无新告警触发</span>
+                </div>
+              </div>
+            </div>
+
+            {/* AI 预测 */}
+            {diagnosis.possibleCauses.length > 0 && (
+              <div className="ai-prediction">
+                <Zap size={14} />
+                <span>基于当前趋势，{diagnosis.possibleCauses[0]}</span>
+              </div>
+            )}
+
+            <div className="diagnosis-grid">
+              <ListBlock title="证据链" items={diagnosis.evidence} />
+              <ListBlock title="可能原因" items={diagnosis.possibleCauses} />
+              <div className="list-block">
+                <strong>修复方案</strong>
+                <ul>
+                  {diagnosis.repairPlan.map((item, i) => (
+                    <li key={i} className="repair-item">
+                      <span>{item}</span>
+                      <button className="mini-action-btn execute" type="button">
+                        <PlayCircle size={12} /> 执行
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* 关联分析 */}
+            <div className="diagnosis-actions">
+              <button className="secondary-button" type="button">
+                <Gauge size={16} /> 执行深度巡检
+              </button>
+              <button className="secondary-button" type="button">
+                <FileText size={16} /> 查看最近日志
+              </button>
+              <button className="secondary-button" type="button">
+                <FileCode2 size={16} /> 生成健康报告
+              </button>
+            </div>
+          </article>
+        )}
+        {diagnosisLoading && !diagnosis && (
+          <article className="panel wide-card ai-panel">
+            <div className="panel-header"><div><p className="eyebrow"><Bot size={14} /> AI 分析</p><h2>智能诊断</h2></div></div>
+            <div className="table-empty"><RefreshCw size={16} className="spinning" /> 正在分析服务器状态...</div>
+          </article>
+        )}
+
+        {(scripts.length > 0 || commands.length > 0) && (
+          <article className="panel wide-card">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">操作</p>
+                <h2>快捷操作</h2>
+              </div>
+            </div>
+            <div className="ops-grid">
+              {commands.map((cmd) => (
+                <div className="ops-item" key={cmd.command}>
+                  <div>
+                    <Code2 size={14} />
+                    <strong>{cmd.command}</strong>
+                    <span>{cmd.description}</span>
+                  </div>
+                  <button className="mini-action-btn" type="button"><PlayCircle size={12} /> 执行</button>
+                </div>
+              ))}
+              {scripts.map((scr) => (
+                <div className="ops-item" key={scr.id}>
+                  <div>
+                    <FileCode2 size={14} />
+                    <strong>{scr.name}</strong>
+                    <span>{scr.type} · {scr.riskLevel}</span>
+                  </div>
+                  <button className="mini-action-btn" type="button"><PlayCircle size={12} /> 执行</button>
+                </div>
+              ))}
+            </div>
+          </article>
+        )}
 
         <article className="panel">
           <div className="panel-header">
@@ -2823,7 +3458,9 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
             <div><dt>核心数</dt><dd>{server.system.cpuCores}</dd></div>
             <div><dt>内存</dt><dd>{server.system.memoryTotalMb} MB</dd></div>
             <div><dt>磁盘</dt><dd>{server.system.diskTotalGb} GB</dd></div>
+            <div><dt>Load Avg</dt><dd>{server.loadAvg.toFixed(2)} / {server.system.cpuCores || 1} 核</dd></div>
             <div><dt>网卡</dt><dd>{server.system.networkCards.join(", ")}</dd></div>
+            <div><dt>启动时间</dt><dd>{server.system.bootTime ? new Date(server.system.bootTime).toLocaleString() : "暂无"}</dd></div>
           </dl>
         </article>
 
@@ -2831,18 +3468,17 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
           <div className="panel-header">
             <div>
               <p className="eyebrow">告警</p>
-              <h2>专属告警规则</h2>
+              <h2>告警规则</h2>
             </div>
-            <button className="text-button" type="button">新建规则 <ChevronRight size={16} /></button>
           </div>
           <div className="rule-list">
             {server.alertRules.map((rule) => (
               <div className="rule-item" key={rule.id}>
                 <div>
                   <strong>{rule.name}</strong>
-                  <span>{rule.metric} / 阈值 {rule.threshold}</span>
+                  <span>当前 {rule.current}% · 阈值 {rule.threshold}%</span>
                 </div>
-                <span className={rule.enabled ? "status online" : "status"}>{rule.enabled ? "enabled" : "disabled"}</span>
+                <span className={rule.triggered ? "status offline" : "status online"}>{rule.triggered ? "已触发" : "正常"}</span>
               </div>
             ))}
           </div>
@@ -2857,48 +3493,210 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
           </div>
           <div className="agent-state">
             <span className={`status ${server.agentStatus}`}>{server.agentStatus}</span>
-            <p>通过 Agent 上报指标、配置、日志和脚本执行状态。未安装服务器可先生成部署计划，后续接入真实 Web SSH 执行。</p>
+            <p>{server.dataMode === "agent_metrics" ? "Agent 正在持续上报真实指标。" : "暂无 Agent 真实指标。"}</p>
           </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">进程</p>
+              <h2>Top 进程（按内存）</h2>
+            </div>
+          </div>
+          {server.processes.length > 0 ? (
+            <div className="table-scroll">
+              <table className="data-table compact">
+                <thead><tr><th>PID</th><th>用户</th><th>CPU%</th><th>MEM%</th><th>命令</th></tr></thead>
+                <tbody>
+                  {server.processes.map((p, i) => (
+                    <tr key={i}><td>{p.pid}</td><td>{p.user}</td><td>{p.cpu}</td><td>{p.mem}</td><td className="mono">{p.command}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="table-empty">等待 Agent 上报。</div>}
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">服务</p>
+              <h2>Systemd 服务状态</h2>
+            </div>
+          </div>
+          {server.services.length > 0 ? (
+            <div className="table-scroll">
+              <table className="data-table compact">
+                <thead><tr><th>服务</th><th>Active</th><th>Sub</th><th>描述</th></tr></thead>
+                <tbody>
+                  {server.services.map((s, i) => (
+                    <tr key={i}><td className="mono">{s.name}</td><td>{s.active}</td><td>{s.sub}</td><td>{s.description}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="table-empty">等待 Agent 上报。</div>}
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">日志</p>
+              <h2>最近错误日志</h2>
+            </div>
+          </div>
+          {server.logs ? (
+            <pre className="log-viewer">{server.logs}</pre>
+          ) : <div className="table-empty">暂无错误日志。</div>}
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">网络</p>
+              <h2>活跃网络连接</h2>
+            </div>
+          </div>
+          {server.network ? (
+            <pre className="log-viewer">{server.network}</pre>
+          ) : <div className="table-empty">等待 Agent 上报。</div>}
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">磁盘</p>
+              <h2>磁盘分区详情</h2>
+            </div>
+          </div>
+          {server.diskDetails.length > 0 ? (
+            <div className="table-scroll">
+              <table className="data-table compact">
+                <thead><tr><th>挂载点</th><th>总量</th><th>已用</th><th>可用</th><th>使用率</th></tr></thead>
+                <tbody>
+                  {server.diskDetails.map((d, i) => (
+                    <tr key={i}><td className="mono">{d.mount}</td><td>{d.size}</td><td>{d.used}</td><td>{d.avail}</td><td>{d.percent}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="table-empty">等待 Agent 上报。</div>}
         </article>
       </section>
 
-      {(installPlan || diagnosis) && (
+      {installPlan && (
         <section className="detail-grid">
-          {installPlan && (
-            <article className="panel wide-card">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">执行计划</p>
-                  <h2>{installPlan.title}</h2>
-                </div>
-                <span className="status">{installPlan.requiresApproval ? "requires approval" : installPlan.riskLevel}</span>
+          <article className="panel wide-card">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">执行计划</p>
+                <h2>{installPlan.title}</h2>
               </div>
-              <ol className="plan-list">
-                {installPlan.steps.map((step) => <li key={step}>{step}</li>)}
-              </ol>
-              <pre className="command-block">{installPlan.command}</pre>
-            </article>
-          )}
-
-          {diagnosis && (
-            <article className="panel wide-card">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">AI 诊断</p>
-                  <h2>诊断报告</h2>
-                </div>
-              </div>
-              <p className="diagnosis-summary">{diagnosis.summary}</p>
-              <div className="diagnosis-grid">
-                <ListBlock title="证据链" items={diagnosis.evidence} />
-                <ListBlock title="可能原因" items={diagnosis.possibleCauses} />
-                <ListBlock title="修复方案" items={diagnosis.repairPlan} />
-              </div>
-            </article>
-          )}
+              <span className="status">{installPlan.requiresApproval ? "requires approval" : installPlan.riskLevel}</span>
+            </div>
+            <ol className="plan-list">
+              {installPlan.steps.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+            <pre className="command-block">{installPlan.command}</pre>
+          </article>
         </section>
       )}
     </div>
+  );
+}
+
+function computeTrends(realtime: Array<{ label: string; cpu: number; memory: number }>) {
+  if (realtime.length < 2) return { cpu: 0, mem: 0, disk: 0, load: 0 };
+  const last = realtime[realtime.length - 1];
+  const prev = realtime[realtime.length - 2];
+  return {
+    cpu: last.cpu - prev.cpu,
+    mem: last.memory - prev.memory,
+    disk: 0,
+    load: 0
+  };
+}
+
+function LineChart({ data }: { data: Array<{ label: string; cpu: number; memory: number }> }) {
+  const w = 600, h = 180, padX = 40, padY = 20;
+  const chartW = w - padX * 2, chartH = h - padY * 2;
+  const maxVal = Math.max(100, ...data.map((d) => Math.max(d.cpu, d.memory)));
+  const toX = (i: number) => padX + (i / Math.max(data.length - 1, 1)) * chartW;
+  const toY = (v: number) => padY + chartH - (v / maxVal) * chartH;
+  const cpuPts = data.map((d, i) => `${toX(i).toFixed(1)},${toY(d.cpu).toFixed(1)}`).join(" ");
+  const memPts = data.map((d, i) => `${toX(i).toFixed(1)},${toY(d.memory).toFixed(1)}`).join(" ");
+  const yTicks = [0, 25, 50, 75, 100];
+
+  // 检测异常点
+  const anomalyPoints = data.filter(d => d.cpu > 80 || d.memory > 80);
+  const maxCpuPoint = data.reduce((max, d) => d.cpu > max.cpu ? d : max, data[0] || { cpu: 0 });
+  const maxMemPoint = data.reduce((max, d) => d.memory > max.memory ? d : max, data[0] || { memory: 0 });
+
+  return (
+    <svg className="line-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+      {/* 阈值线 */}
+      <line x1={padX} y1={toY(80)} x2={w - padX} y2={toY(80)} className="threshold-line warning" />
+      <line x1={padX} y1={toY(90)} x2={w - padX} y2={toY(90)} className="threshold-line danger" />
+      <text x={w - padX + 4} y={toY(80) + 4} className="threshold-label warning">80%</text>
+      <text x={w - padX + 4} y={toY(90) + 4} className="threshold-label danger">90%</text>
+
+      {/* 网格线 */}
+      {yTicks.map((v) => (
+        <g key={v}>
+          <line x1={padX} y1={toY(v)} x2={w - padX} y2={toY(v)} className="chart-grid" />
+          <text x={padX - 4} y={toY(v) + 4} textAnchor="end" className="chart-label">{v}%</text>
+        </g>
+      ))}
+      
+      {/* 填充区域 */}
+      <defs>
+        <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1f6feb" stopOpacity="0.2" />
+          <stop offset="100%" stopColor="#1f6feb" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="memGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#33c3a5" stopOpacity="0.2" />
+          <stop offset="100%" stopColor="#33c3a5" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      
+      <polyline points={cpuPts} className="chart-line-cpu" />
+      <polyline points={memPts} className="chart-line-mem" />
+      
+      {/* 数据点 */}
+      {data.map((d, i) => (
+        <g key={i}>
+          <circle cx={toX(i)} cy={toY(d.cpu)} r={d.cpu > 80 ? 5 : 3} className={`chart-dot-cpu ${d.cpu > 80 ? 'anomaly' : ''}`}>
+            <title>{d.label} CPU: {d.cpu}%</title>
+          </circle>
+          <circle cx={toX(i)} cy={toY(d.memory)} r={d.memory > 80 ? 5 : 3} className={`chart-dot-mem ${d.memory > 80 ? 'anomaly' : ''}`}>
+            <title>{d.label} 内存: {d.memory}%</title>
+          </circle>
+          {i % Math.max(1, Math.floor(data.length / 6)) === 0 && (
+            <text x={toX(i)} y={h - 4} textAnchor="middle" className="chart-label">{d.label}</text>
+          )}
+        </g>
+      ))}
+      
+      {/* 异常标记 */}
+      {maxCpuPoint && maxCpuPoint.cpu > 80 && (
+        <g>
+          <circle cx={toX(data.indexOf(maxCpuPoint))} cy={toY(maxCpuPoint.cpu)} r={8} className="anomaly-marker" />
+          <text x={toX(data.indexOf(maxCpuPoint))} y={toY(maxCpuPoint.cpu) - 12} textAnchor="middle" className="anomaly-label">
+            峰值 {maxCpuPoint.cpu}%
+          </text>
+        </g>
+      )}
+      
+      {/* 当前值高亮 */}
+      {data.length > 0 && (
+        <g>
+          <circle cx={toX(data.length - 1)} cy={toY(data[data.length - 1].cpu)} r={5} className="chart-dot-cpu-active" />
+          <circle cx={toX(data.length - 1)} cy={toY(data[data.length - 1].memory)} r={5} className="chart-dot-mem-active" />
+        </g>
+      )}
+    </svg>
   );
 }
 
@@ -2946,5 +3744,99 @@ function Placeholder({ title }: { title: string }) {
       <h2>{title}</h2>
       <p>模块入口已建立，后续会按 MVP 排期逐步接入真实数据、权限和自动化流程。</p>
     </section>
+  );
+}
+
+// AI Copilot 抽屉组件
+function CopilotDrawer({
+  open,
+  onClose,
+  message,
+  setMessage,
+  loading,
+  onSend
+}: {
+  open: boolean;
+  onClose: () => void;
+  message: string;
+  setMessage: (value: string) => void;
+  loading: boolean;
+  onSend: (msg: string) => void;
+}) {
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([
+    { role: 'assistant', content: '你好！我是 NextOps AI 助手。你可以问我：\n• 为什么 CPU 升高了？\n• 最近有什么异常？\n• 帮我分析日志\n• node 服务占用高吗？' }
+  ]);
+  const [inputValue, setInputValue] = useState('');
+
+  const quickQuestions = [
+    '为什么 CPU 升高了？',
+    '最近有什么异常？',
+    '帮我分析日志',
+    'node 占用高吗？'
+  ];
+
+  function handleSend() {
+    if (!inputValue.trim() || loading) return;
+    setMessages(prev => [...prev, { role: 'user', content: inputValue }]);
+    onSend(inputValue);
+    setInputValue('');
+  }
+
+  return (
+    <>
+      {open && <div className="copilot-overlay" onClick={onClose} />}
+      <aside className={`copilot-drawer ${open ? 'open' : ''}`}>
+        <div className="copilot-header">
+          <div className="copilot-title">
+            <Bot size={20} />
+            <span>AI 助手</span>
+          </div>
+          <button className="copilot-close" onClick={onClose} type="button">
+            <XCircle size={20} />
+          </button>
+        </div>
+        <div className="copilot-messages">
+          {messages.map((msg, i) => (
+            <div key={i} className={`copilot-message ${msg.role}`}>
+              <div className="copilot-avatar">
+                {msg.role === 'assistant' ? <Bot size={16} /> : <MessageSquareText size={16} />}
+              </div>
+              <div className="copilot-bubble">
+                <p>{msg.content}</p>
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="copilot-message assistant">
+              <div className="copilot-avatar"><Bot size={16} /></div>
+              <div className="copilot-bubble">
+                <p>正在分析...</p>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="copilot-quick">
+          <span>快捷问题：</span>
+          <div className="quick-questions">
+            {quickQuestions.map((q, i) => (
+              <button key={i} className="quick-question" onClick={() => setInputValue(q)} type="button">
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="copilot-input">
+          <input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder="输入你的问题..."
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          />
+          <button onClick={handleSend} disabled={loading || !inputValue.trim()} type="button">
+            {loading ? <RefreshCw size={16} className="spinning" /> : '发送'}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

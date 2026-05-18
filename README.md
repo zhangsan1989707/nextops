@@ -77,3 +77,20 @@ Local smoke test:
 ```bash
 npm run smoke
 ```
+
+## Local Machine Monitoring
+
+Start the API/Web stack first:
+
+```bash
+npm run docker:deploy
+```
+
+Then run the local Agent on your Mac:
+
+```bash
+npm run agent:local
+```
+
+The Agent registers the current machine as a `local` server and reports CPU, memory,
+disk, load average and host inventory to the API every 10 seconds.
