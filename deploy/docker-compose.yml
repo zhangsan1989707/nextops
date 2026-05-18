@@ -46,8 +46,6 @@ services:
   web:
     build:
       context: ../apps/web
-      args:
-        VITE_API_BASE_URL: http://47.109.85.168:4000
     container_name: nextops-web
     volumes:
       - ../apps/web/nginx.conf:/etc/nginx/conf.d/default.conf

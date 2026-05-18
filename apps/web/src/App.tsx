@@ -36,7 +36,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ModelsPage from "./components/Models";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 type DashboardSummary = {
   servers: { total: number; online: number; warning: number; offline: number };
