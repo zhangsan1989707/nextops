@@ -293,3 +293,62 @@ curl -X POST http://127.0.0.1:4000/api/models \
 2. **数据持久化**: Docker volumes 确保数据持久化
 3. **健康检查**: PostgreSQL 和 Redis 需要健康检查通过后才启动 API
 4. **网络模式**: 所有容器在同一个 bridge 网络中，通过服务名互相访问
+
+## 九、数据持久化注意事项 ⚠️
+
+### 重建容器时保护数据
+
+**❌ 危险操作**（会丢失数据）：
+```bash
+# 删除所有容器和 volumes - 数据会丢失！
+docker compose down -v
+
+# 强制重建所有服务 - 可能丢失数据
+docker compose down
+docker compose up --build -d
+```
+
+**✅ 安全操作**（保留数据）：
+```bash
+# 只重建单个服务，保留 volumes
+docker compose up -d --build api
+docker compose up -d --build web
+
+# 或者分步操作
+docker compose up -d api
+docker compose up -d web
+```
+
+### 关键配置检查清单
+
+重建服务前，确认以下几点：
+
+1. **CORS 配置**：确保 `apps/api/src/index.ts` 中有 cors 中间件
+2. **dotenv 配置**：确保 `apps/api/src/db.ts` 和 `apps/api/src/index.ts` 开头有 `dotenv.config()`
+3. **数据库连接**：确保 `docker-compose.yml` 中 `DATABASE_URL` 指向正确的数据库
+
+### 服务器已有的数据
+
+服务器上存在两个 PostgreSQL 实例：
+- `nextops-postgres` (端口 5432) - NextOps 专用数据库，使用 Docker volume 持久化
+- `novelai-db` (端口 5433) - 其他项目数据库
+
+### 快速恢复数据
+
+如果数据丢失，重新添加智谱模型：
+```bash
+curl -X POST http://127.0.0.1:4000/api/models \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": "glm-4.5-air",
+    "name": "智谱 GLM-4.5-Air",
+    "provider": "Zhipu AI (智谱)",
+    "endpoint": "https://open.bigmodel.cn/api/paas/v4",
+    "apiKey": "YOUR_API_KEY",
+    "type": "chat",
+    "contextWindow": "128k",
+    "costLevel": "low",
+    "capabilities": ["ChatOps", "日志诊断", "修复方案生成"],
+    "setDefault": true
+  }'
+```

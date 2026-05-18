@@ -220,18 +220,6 @@ export default function Models({ summary }: ModelsProps) {
     }
   }, [summary]);
 
-  // 按供应商分组
-  const groupedModels = useMemo(() => {
-    const groups: Record<string, ModelItem[]> = {};
-    filteredModels.forEach(model => {
-      if (!groups[model.provider]) {
-        groups[model.provider] = [];
-      }
-      groups[model.provider].push(model);
-    });
-    return groups;
-  }, [filteredModels]);
-
   // 获取所有供应商
   const providers = useMemo(() => {
     const set = new Set(models.map(m => m.provider));
@@ -253,6 +241,18 @@ export default function Models({ summary }: ModelsProps) {
       return matchesSearch && matchesProvider && matchesStatus;
     });
   }, [models, searchQuery, filterProvider, filterStatus]);
+
+  // 按供应商分组
+  const groupedModels = useMemo(() => {
+    const groups: Record<string, ModelItem[]> = {};
+    filteredModels.forEach(model => {
+      if (!groups[model.provider]) {
+        groups[model.provider] = [];
+      }
+      groups[model.provider].push(model);
+    });
+    return groups;
+  }, [filteredModels]);
 
   const totals = useMemo(() => ({
     models: models.length,
@@ -490,7 +490,7 @@ export default function Models({ summary }: ModelsProps) {
                     <MessageSquareText size={14} />
                     {selectedModel.type === "chat" ? "对话" : "向量"}
                   </span>
-                  <span className="cost-tag" style={getCostColor(selectedModel.costLevel)}>
+                  <span className="cost-tag" style={{ background: getCostColor(selectedModel.costLevel).bg, color: getCostColor(selectedModel.costLevel).text }}>
                     {getCostColor(selectedModel.costLevel).label}
                   </span>
                   {selectedModel.isDefault && (
