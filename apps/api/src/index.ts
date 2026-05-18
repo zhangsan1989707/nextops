@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
+import cors from "cors";
 import { errorHandler } from "./middleware/error.js";
 import { initializeDatabase } from "./db.js";
 
@@ -29,6 +30,12 @@ const app = express();
 const port = Number(process.env.PORT ?? 4000);
 
 app.use(express.json());
+
+// CORS
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(",") ?? "*",
+  credentials: true
+}));
 
 // Health check
 app.use("/health", healthRouter);
