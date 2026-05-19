@@ -29,7 +29,7 @@ type ChatCompletionResponse = {
   }>;
 };
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 8000);
+const DEFAULT_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 30000);
 
 export function resolveModelApiKey(model: AiModelRuntimeRecord): string | null {
   if (model.apiKeySecret) {
