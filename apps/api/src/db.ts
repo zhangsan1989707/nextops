@@ -1012,6 +1012,7 @@ export async function initializeDatabase() {
   }
   await seedIdentityAccess();
   await seedOperationalCatalogs();
+  await seedDemoAssets();
 }
 
 function shouldSeedDemoData(): boolean {
@@ -1105,6 +1106,56 @@ async function seedOperationalCatalogs() {
       await pool.query(
         "insert into slash_commands (command, description, example) values ($1, $2, $3) on conflict (command) do nothing",
         [item.command, item.description, item.example]
+      );
+    }
+  }
+}
+
+async function seedDemoAssets() {
+  if (!shouldSeedDemoData()) {
+    return;
+  }
+
+  const serverCount = await pool.query<{ count: string }>("select count(*) from servers");
+  if (Number(serverCount.rows[0]?.count ?? 0) === 0) {
+    for (const s of demoServers) {
+      await pool.query(
+        `insert into servers (id, ip, port, hostname, environment, tenant, status, agent_status, os, cpu_usage, memory_usage, disk_usage, load_avg, tags)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) on conflict (id) do nothing`,
+        [s.id, s.ip, s.port, s.hostname, s.environment, s.tenant, s.status, s.agentStatus, s.os, s.cpuUsage, s.memoryUsage, s.diskUsage, s.loadAvg, s.tags]
+      );
+    }
+  }
+
+  const alertCount = await pool.query<{ count: string }>("select count(*) from alerts");
+  if (Number(alertCount.rows[0]?.count ?? 0) === 0) {
+    for (const a of demoAlerts) {
+      await pool.query(
+        `insert into alerts (id, title, severity, status, source, server_id, triggered_at)
+         values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do nothing`,
+        [a.id, a.title, a.severity, a.status, a.source, a.serverId, a.triggeredAt]
+      );
+    }
+  }
+
+  const scriptCount = await pool.query<{ count: string }>("select count(*) from scripts");
+  if (Number(scriptCount.rows[0]?.count ?? 0) === 0) {
+    for (const s of demoScripts) {
+      await pool.query(
+        `insert into scripts (id, name, type, risk_level, version, success_rate)
+         values ($1,$2,$3,$4,$5,$6) on conflict (id) do nothing`,
+        [s.id, s.name, s.type, s.riskLevel, s.version, s.successRate]
+      );
+    }
+  }
+
+  const modelCount = await pool.query<{ count: string }>("select count(*) from ai_models");
+  if (Number(modelCount.rows[0]?.count ?? 0) === 0) {
+    for (const m of demoModels) {
+      await pool.query(
+        `insert into ai_models (id, name, provider, type, status, is_default, context_window, latency_ms, cost_level, capabilities, endpoint, api_key_env_name)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict (id) do nothing`,
+        [m.id, m.name, m.provider, m.type, m.status, m.isDefault, m.contextWindow, m.latencyMs, m.costLevel, m.capabilities, m.endpoint, m.apiKeyEnvName ?? null]
       );
     }
   }

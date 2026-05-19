@@ -433,7 +433,6 @@ async function fetchJson<T>(path: string): Promise<T> {
   if (response.status === 401) {
     localStorage.removeItem("nextops_token");
     localStorage.removeItem("nextops_user");
-    window.location.reload();
     throw new Error("Unauthorized");
   }
   if (!response.ok) {
@@ -451,7 +450,6 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (response.status === 401) {
     localStorage.removeItem("nextops_token");
     localStorage.removeItem("nextops_user");
-    window.location.reload();
     throw new Error("Unauthorized");
   }
   if (!response.ok) {
@@ -690,6 +688,10 @@ export function App() {
         setRoleSummary(await fetchJson<RoleSummary>("/api/roles/summary"));
       }
     } catch (error) {
+      if (error instanceof Error && error.message === "Unauthorized") {
+        setAuthUser(null);
+        return;
+      }
       setPageError(error instanceof Error ? error.message : "页面数据加载失败");
     } finally {
       setPageLoading(false);
@@ -700,8 +702,9 @@ export function App() {
   }
 
   useEffect(() => {
+    if (!authUser) return;
     void loadPageData(activePage);
-  }, [activePage]);
+  }, [activePage, authUser]);
 
   async function runChat(inputValue: string) {
     const input = inputValue.trim();
@@ -731,6 +734,12 @@ export function App() {
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ message: input })
       });
+      if (response.status === 401) {
+        localStorage.removeItem("nextops_token");
+        localStorage.removeItem("nextops_user");
+        setAuthUser(null);
+        return;
+      }
       if (!response.ok || !response.body) {
         throw new Error(`Request failed: ${response.status}`);
       }
