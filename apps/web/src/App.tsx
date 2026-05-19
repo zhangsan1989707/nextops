@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ModelsPage from "./components/Models";
+import { HealthRing, StatusDot } from "./components/HealthRing";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -3169,8 +3170,7 @@ function Servers({
             <span><span className="resource-type-badge">{resourceTypeLabel(server.type)}</span></span>
             <span>{resourceEnvLabel(server.environment)}</span>
             <span className="agent-status">
-              <span className={`agent-status-dot ${server.agentStatus === "online" ? "online" : "offline"}`} />
-              {server.agentStatus === "online" ? "在线" : server.agentStatus === "not_installed" ? "未安装" : "离线"}
+              <StatusDot status={server.agentStatus === "online" ? "online" : server.agentStatus === "not_installed" ? "offline" : "offline"} label={server.agentStatus === "online" ? "在线" : server.agentStatus === "not_installed" ? "未安装" : "离线"} />
             </span>
             <span>{server.cpuUsage}%</span>
             <span>{server.memoryUsage}%</span>
@@ -3791,25 +3791,43 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
 function ServerHealth({ server }: { server: ServerItem }) {
   return (
     <article className="server-health">
-      <div>
-        <strong>{server.hostname}</strong>
-        <span>{server.ip}</span>
+      <div className="server-health-header">
+        <div className="server-health-ring">
+          <HealthRing
+            percentage={Math.round((server.cpuUsage + server.memoryUsage + server.diskUsage) / 3)}
+            size={44}
+            strokeWidth={5}
+            showValue={false}
+          />
+        </div>
+        <div>
+          <strong>{server.hostname}</strong>
+          <span>{server.ip}</span>
+          <span className="server-role-tag">{server.environment === "production" ? "生产" : server.environment === "staging" ? "预发" : "开发"}</span>
+        </div>
+        <StatusDot status={server.status === "healthy" || server.status === "online" ? "online" : server.status === "warning" ? "warning" : "critical"} label="" />
       </div>
       <div className="health-bars">
-        <Meter icon={<Gauge size={14} />} value={server.cpuUsage} />
-        <Meter icon={<Database size={14} />} value={server.memoryUsage} />
-        <Meter icon={<HardDrive size={14} />} value={server.diskUsage} />
+        <ProgressBar label="CPU" value={server.cpuUsage} />
+        <ProgressBar label="内存" value={server.memoryUsage} />
+        <ProgressBar label="磁盘" value={server.diskUsage} />
       </div>
     </article>
   );
 }
 
-function Meter({ icon, value }: { icon: React.ReactNode; value: number }) {
+function ProgressBar({ label, value }: { label: string; value: number }) {
+  const severity = value >= 90 ? "critical" : value >= 75 ? "warning" : "healthy";
   return (
     <div className="meter">
-      {icon}
-      <span><i style={{ width: `${value}%` }} /></span>
-      <b>{value}%</b>
+      <span style={{ fontSize: 11, fontWeight: 600, width: 32, color: "var(--text-muted)" }}>{label}</span>
+      <div className="progress-track">
+        <div
+          className={`progress-fill ${severity}`}
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      <b style={{ fontSize: 12, fontWeight: 700, width: 36, textAlign: "right" }}>{value}%</b>
     </div>
   );
 }
