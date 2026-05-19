@@ -7,6 +7,8 @@ const execFileAsync = promisify(execFile);
 const API_URL = process.env.NEXTOPS_API_URL ?? "http://localhost:4000";
 const AGENT_ID = process.env.NEXTOPS_AGENT_ID ?? `local-${os.hostname().toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 const INTERVAL_MS = Number(process.env.NEXTOPS_AGENT_INTERVAL_MS ?? 10000);
+const AGENT_ENV = process.env.NEXTOPS_AGENT_ENVIRONMENT ?? "local";
+const AGENT_TAGS = process.env.NEXTOPS_AGENT_TAGS?.split(",").map(s => s.trim()).filter(Boolean) ?? ["local", "agent"];
 const VERSION = "0.1.0";
 
 type CpuSample = {
@@ -35,9 +37,9 @@ async function main() {
     hostname: os.hostname(),
     ip: primaryIp(),
     os: `${os.type()} ${os.release()}`,
-    environment: "local",
+    environment: AGENT_ENV,
     version: VERSION,
-    tags: ["local", "macbook", "agent"],
+    tags: AGENT_TAGS,
     inventory
   });
 
