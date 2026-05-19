@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getAiModels, getAiModel, getAiModelForRuntime, createAiModel, setDefaultAiModel, toggleAiModel } from "../db.js";
 import { asyncHandler } from "../utils/helpers.js";
+import { testModelConnectivity } from "../ai.js";
 
 const router = Router();
 
@@ -85,14 +86,15 @@ router.post("/:id/test", asyncHandler(async (req, res) => {
   }
 
   const startedAt = Date.now();
+  const result = await testModelConnectivity({ model, timeoutMs: 10000 });
   res.json({
     modelId: model.id,
-    ok: true,
-    status: "connected",
+    ok: result.ok,
+    status: result.status,
     latencyMs: Date.now() - startedAt,
     checkedAt: new Date().toISOString(),
-    checks: [],
-    warnings: []
+    checks: result.checks,
+    warnings: result.warnings
   });
 }));
 

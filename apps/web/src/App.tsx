@@ -421,8 +421,21 @@ const menuGroups = [
   }
 ];
 
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem("nextops_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: getAuthHeaders()
+  });
+  if (response.status === 401) {
+    localStorage.removeItem("nextops_token");
+    localStorage.removeItem("nextops_user");
+    window.location.reload();
+    throw new Error("Unauthorized");
+  }
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -432,9 +445,15 @@ async function fetchJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(body)
   });
+  if (response.status === 401) {
+    localStorage.removeItem("nextops_token");
+    localStorage.removeItem("nextops_user");
+    window.location.reload();
+    throw new Error("Unauthorized");
+  }
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -453,7 +472,23 @@ function parseStreamEvent(raw: string): { event: string; data: unknown } | null 
   };
 }
 
+type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  team: string;
+};
+
 export function App() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
+    const stored = localStorage.getItem("nextops_user");
+    return stored ? JSON.parse(stored) as AuthUser : null;
+  });
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [activePage, setActivePage] = useState("dashboard");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [servers, setServers] = useState<ServerItem[]>([]);
@@ -484,6 +519,96 @@ export function App() {
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  async function handleLogin(e: FormEvent) {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+      if (!res.ok) {
+        const data = await res.json() as { message?: string };
+        throw new Error(data.message ?? "登录失败");
+      }
+      const data = await res.json() as { token: string; user: AuthUser };
+      localStorage.setItem("nextops_token", data.token);
+      localStorage.setItem("nextops_user", JSON.stringify(data.user));
+      setAuthUser(data.user);
+      setLoginEmail("");
+      setLoginPassword("");
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : "登录失败");
+    } finally {
+      setLoginLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("nextops_token");
+    localStorage.removeItem("nextops_user");
+    setAuthUser(null);
+  }
+
+  if (!authUser) {
+    return (
+      <div className="app-shell" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <form onSubmit={handleLogin} style={{
+          width: 360,
+          padding: 32,
+          background: "var(--card-bg, #1a1f2e)",
+          borderRadius: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16
+        }}>
+          <div style={{ textAlign: "center", marginBottom: 8 }}>
+            <div style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 48, height: 48, borderRadius: 12, background: "#6366f1",
+              fontSize: 24, fontWeight: 700, color: "#fff", marginBottom: 12
+            }}>N</div>
+            <h2 style={{ margin: 0, fontSize: 20 }}>登录 NextOps</h2>
+            <p style={{ margin: "4px 0 0", color: "#888", fontSize: 13 }}>AI Operations Platform</p>
+          </div>
+          {loginError && <p style={{ color: "#f87171", margin: 0, fontSize: 13 }}>{loginError}</p>}
+          <input
+            type="email"
+            placeholder="邮箱地址"
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            required
+            style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #333", background: "#0f1218", color: "#eee", fontSize: 14 }}
+          />
+          <input
+            type="password"
+            placeholder="密码"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            required
+            style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #333", background: "#0f1218", color: "#eee", fontSize: 14 }}
+          />
+          <button
+            type="submit"
+            disabled={loginLoading}
+            style={{
+              padding: "10px 0", borderRadius: 8, border: "none",
+              background: "#6366f1", color: "#fff", fontSize: 14, fontWeight: 600,
+              cursor: loginLoading ? "wait" : "pointer"
+            }}
+          >
+            {loginLoading ? "登录中..." : "登录"}
+          </button>
+          <p style={{ margin: 0, color: "#666", fontSize: 12, textAlign: "center" }}>
+            演示账号: leo@example.com / admin123
+          </p>
+        </form>
+      </div>
+    );
+  }
 
   const activeLabel = useMemo(() => {
     for (const group of menuGroups) {
@@ -603,7 +728,7 @@ export function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/chatops/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ message: input })
       });
       if (!response.ok || !response.body) {
@@ -732,6 +857,17 @@ export function App() {
             <div className="search">
               <Search size={16} />
               <input placeholder="搜索服务器、告警、脚本或指令" />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#aaa" }}>
+              <span>{authUser.name} ({authUser.role})</span>
+              <button
+                onClick={handleLogout}
+                type="button"
+                style={{ background: "none", border: "1px solid #444", borderRadius: 6, color: "#aaa", padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+                title="退出登录"
+              >
+                退出
+              </button>
             </div>
             <div className="settings-menu">
               <button

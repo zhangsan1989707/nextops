@@ -4,10 +4,12 @@ dotenv.config();
 import express from "express";
 import cors from "cors";
 import { errorHandler } from "./middleware/error.js";
+import { authMiddleware } from "./middleware/auth.js";
 import { initializeDatabase } from "./db.js";
 
 // Routes
 import healthRouter from "./routes/health.js";
+import authRouter from "./routes/auth.js";
 import dashboardRouter from "./routes/dashboard.js";
 import serversRouter from "./routes/servers.js";
 import agentsRouter from "./routes/agents.js";
@@ -31,33 +33,37 @@ const port = Number(process.env.PORT ?? 4000);
 
 app.use(express.json());
 
-// CORS
+// CORS — must explicitly configure ALLOWED_ORIGINS in production
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map(s => s.trim()).filter(Boolean);
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(",") ?? "*",
+  origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : false,
   credentials: true
 }));
 
 // Health check
 app.use("/health", healthRouter);
 
-// API routes
-app.use("/api/dashboard", dashboardRouter);
-app.use("/api/servers", serversRouter);
+// Auth (public)
+app.use("/api/auth", authRouter);
+
+// API routes — agents has public endpoints (register, metrics), rest are authenticated
+app.use("/api/dashboard", authMiddleware, dashboardRouter);
+app.use("/api/servers", authMiddleware, serversRouter);
 app.use("/api/agents", agentsRouter);
-app.use("/api/alerts", alertsRouter);
-app.use("/api/scripts", scriptsRouter);
-app.use("/api/slash-commands", slashCommandsRouter);
-app.use("/api/chatops", chatopsRouter);
-app.use("/api/models", modelsRouter);
-app.use("/api/members", membersRouter);
-app.use("/api/teams", teamsRouter);
-app.use("/api/roles", rolesRouter);
-app.use("/api/tasks", tasksRouter);
-app.use("/api/approvals", approvalsRouter);
-app.use("/api/files", filesRouter);
-app.use("/api/packages", packagesRouter);
-app.use("/api/tenants", tenantsRouter);
-app.use("/api/audit-logs", auditLogsRouter);
+app.use("/api/alerts", authMiddleware, alertsRouter);
+app.use("/api/scripts", authMiddleware, scriptsRouter);
+app.use("/api/slash-commands", authMiddleware, slashCommandsRouter);
+app.use("/api/chatops", authMiddleware, chatopsRouter);
+app.use("/api/models", authMiddleware, modelsRouter);
+app.use("/api/members", authMiddleware, membersRouter);
+app.use("/api/teams", authMiddleware, teamsRouter);
+app.use("/api/roles", authMiddleware, rolesRouter);
+app.use("/api/tasks", authMiddleware, tasksRouter);
+app.use("/api/approvals", authMiddleware, approvalsRouter);
+app.use("/api/files", authMiddleware, filesRouter);
+app.use("/api/packages", authMiddleware, packagesRouter);
+app.use("/api/tenants", authMiddleware, tenantsRouter);
+app.use("/api/audit-logs", authMiddleware, auditLogsRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);

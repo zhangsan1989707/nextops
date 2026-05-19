@@ -138,6 +138,7 @@ export type MemberRecord = {
   status: string;
   lastSeenAt: string | null;
   permissions: string[];
+  passwordHash?: string | null;
 };
 
 export type TeamRecord = {
@@ -260,7 +261,10 @@ export type ApprovalTicketRecord = {
 };
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL ?? "postgres://nextops:nextops@localhost:5432/nextops"
+  connectionString: process.env.DATABASE_URL ?? "postgres://nextops:nextops@localhost:5432/nextops",
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000
 });
 
 const demoServers: ServerRecord[] = [
@@ -427,7 +431,8 @@ const demoMembers: MemberRecord[] = [
     team: "平台工程",
     status: "active",
     lastSeenAt: "2026-05-12T07:58:00.000Z",
-    permissions: ["全局配置", "模型管理", "审批处理", "服务器纳管"]
+    permissions: ["全局配置", "模型管理", "审批处理", "服务器纳管"],
+    passwordHash: "$2a$10$HGwD5ul1Xb21nirYi4xh4uVEGnTSkZJ//t2dy9xFhEsOTRNcr7pKG"
   },
   {
     id: "mem-002",
@@ -437,7 +442,8 @@ const demoMembers: MemberRecord[] = [
     team: "稳定性团队",
     status: "active",
     lastSeenAt: "2026-05-12T06:40:00.000Z",
-    permissions: ["告警处理", "脚本执行", "AI 诊断"]
+    permissions: ["告警处理", "脚本执行", "AI 诊断"],
+    passwordHash: "$2a$10$HGwD5ul1Xb21nirYi4xh4uVEGnTSkZJ//t2dy9xFhEsOTRNcr7pKG"
   },
   {
     id: "mem-003",
@@ -447,7 +453,8 @@ const demoMembers: MemberRecord[] = [
     team: "DevOps Lab",
     status: "pending",
     lastSeenAt: null,
-    permissions: ["工单审核", "部署确认"]
+    permissions: ["工单审核", "部署确认"],
+    passwordHash: "$2a$10$HGwD5ul1Xb21nirYi4xh4uVEGnTSkZJ//t2dy9xFhEsOTRNcr7pKG"
   }
 ];
 
@@ -989,12 +996,20 @@ const migrations = [
       alter table server_metrics add column if not exists network_connections text not null default '';
       alter table server_metrics add column if not exists disk_details jsonb not null default '[]';
     `
+  },
+  {
+    id: "0009_password_auth",
+    sql: `
+      alter table members add column if not exists password_hash text;
+    `
   }
 ];
 
 export async function initializeDatabase() {
   await runMigrations();
-  await cleanupDemoData();
+  if (process.env.CLEANUP_DEMO_DATA === "true") {
+    await cleanupDemoData();
+  }
   await seedIdentityAccess();
   await seedOperationalCatalogs();
 }
@@ -1046,6 +1061,34 @@ async function seedIdentityAccess() {
           on conflict (id) do nothing
         `,
         [role.id, role.name, role.scope, role.status, role.memberCount, role.description, role.permissions]
+      );
+    }
+  }
+
+  const teamCount = await pool.query<{ count: string }>("select count(*) from teams");
+  if (Number(teamCount.rows[0]?.count ?? 0) === 0) {
+    for (const team of demoTeams) {
+      await pool.query(
+        `
+          insert into teams (id, name, parent_id, team_type, status, lead, member_count, server_count, approval_sla, description, responsibilities)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          on conflict (id) do nothing
+        `,
+        [team.id, team.name, team.parentId, team.type, team.status, team.lead, team.memberCount, team.serverCount, team.approvalSla, team.description, team.responsibilities]
+      );
+    }
+  }
+
+  const memberCount = await pool.query<{ count: string }>("select count(*) from members");
+  if (Number(memberCount.rows[0]?.count ?? 0) === 0) {
+    for (const member of demoMembers) {
+      await pool.query(
+        `
+          insert into members (id, name, email, role, team, status, last_seen_at, permissions, password_hash)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          on conflict (id) do nothing
+        `,
+        [member.id, member.name, member.email, member.role, member.team, member.status, member.lastSeenAt, member.permissions, member.passwordHash]
       );
     }
   }
@@ -1583,6 +1626,19 @@ export async function getMembers(): Promise<MemberRecord[]> {
     order by created_at asc
   `);
   return result.rows.map(mapMember);
+}
+
+export async function getMemberByEmail(email: string): Promise<MemberRecord & { passwordHash: string | null } | null> {
+  const result = await pool.query(
+    "select id, name, email, role, team, status, last_seen_at, permissions, password_hash from members where email = $1",
+    [email]
+  );
+  if (!result.rows[0]) return null;
+  const row = result.rows[0];
+  return {
+    ...mapMember(row),
+    passwordHash: row.password_hash ? String(row.password_hash) : null
+  };
 }
 
 export async function toggleMember(id: string): Promise<MemberRecord | null> {

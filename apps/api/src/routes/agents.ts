@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { registerAgent, recordAgentMetrics, createTaskRecord, getServer, createAuditLog } from "../db.js";
 import { asyncHandler, clampPercent } from "../utils/helpers.js";
+import { authMiddleware } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -65,7 +66,7 @@ router.post("/:id/metrics", asyncHandler(async (req, res) => {
   res.status(201).json(metric);
 }));
 
-router.post("/:id/install-plan", asyncHandler(async (req, res) => {
+router.post("/:id/install-plan", authMiddleware, asyncHandler(async (req, res) => {
   const id = String(req.params.id);
   const server = await getServer(id);
   if (!server) {
