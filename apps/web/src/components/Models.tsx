@@ -115,10 +115,15 @@ function formatLatency(ms: number) {
 }
 
 // API helpers
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem("nextops_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
