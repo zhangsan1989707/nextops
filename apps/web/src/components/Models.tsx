@@ -309,6 +309,78 @@ export default function Models({ summary }: ModelsProps) {
     }
   }
 
+  async function deleteModel(modelId: string) {
+    if (!confirm("确定要删除该模型吗？")) return;
+    setSubmittingId(modelId);
+    try {
+      await fetch(`/api/models/${modelId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+      });
+      setModels(current => {
+        const next = current.filter(m => m.id !== modelId);
+        if (selectedModel?.id === modelId) {
+          setSelectedModel(next[0] ?? null);
+        }
+        return next;
+      });
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
+  const [editingModel, setEditingModel] = useState<ModelItem | null>(null);
+  const [editDraft, setEditDraft] = useState<ModelDraft | null>(null);
+
+  function startEdit(model: ModelItem) {
+    setEditingModel(model);
+    setEditDraft({
+      name: model.name,
+      id: model.id,
+      provider: model.provider,
+      type: model.type,
+      endpoint: model.endpoint,
+      apiKey: "",
+      contextWindow: model.contextWindow,
+      costLevel: model.costLevel,
+      setDefault: model.isDefault
+    });
+  }
+
+  async function submitEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingModel || !editDraft) return;
+    setSubmittingId(editingModel.id);
+    try {
+      const body: Record<string, unknown> = {
+        name: editDraft.name,
+        provider: editDraft.provider,
+        type: editDraft.type,
+        endpoint: editDraft.endpoint,
+        contextWindow: editDraft.contextWindow,
+        costLevel: editDraft.costLevel
+      };
+      if (editDraft.apiKey) body.apiKey = editDraft.apiKey;
+      const updated = await postJson<ModelItem>(`/api/models/${editingModel.id}`, body);
+      // Use PUT for update
+      const res = await fetch(`/api/models/${editingModel.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const updatedModel = await res.json() as ModelItem;
+      setModels(current => current.map(m => m.id === updatedModel.id ? updatedModel : m));
+      setSelectedModel(updatedModel);
+      setEditingModel(null);
+      setEditDraft(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "更新失败");
+    } finally {
+      setSubmittingId(null);
+    }
+  }
+
   function applyTemplate(templateKey: string) {
     const template = MODEL_TEMPLATES[templateKey];
     if (template) {
@@ -569,6 +641,23 @@ export default function Models({ summary }: ModelsProps) {
                   <Activity size={16} />
                   测试连接
                 </button>
+                <button
+                  className="action-btn"
+                  disabled={submittingId === selectedModel.id}
+                  onClick={() => startEdit(selectedModel)}
+                >
+                  <Settings size={16} />
+                  编辑
+                </button>
+                <button
+                  className="action-btn danger"
+                  disabled={submittingId === selectedModel.id}
+                  onClick={() => deleteModel(selectedModel.id)}
+                  style={{ color: "#DC2626" }}
+                >
+                  <Trash2 size={16} />
+                  删除
+                </button>
               </div>
 
               {testResult && testResult.modelId === selectedModel.id && (
@@ -737,6 +826,66 @@ export default function Models({ summary }: ModelsProps) {
                 {savingModel ? "添加中..." : "添加模型"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 编辑模型模态框 */}
+      {editingModel && editDraft && (
+        <div className="modal-overlay" onClick={() => { setEditingModel(null); setEditDraft(null); }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>编辑模型</h2>
+              <button className="modal-close" onClick={() => { setEditingModel(null); setEditDraft(null); }}>
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={submitEdit} className="modal-form">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>模型名称</label>
+                  <input type="text" value={editDraft.name} onChange={e => setEditDraft(d => d ? { ...d, name: e.target.value } : d)} required />
+                </div>
+                <div className="form-group">
+                  <label>模型 ID</label>
+                  <input type="text" value={editDraft.id} disabled style={{ opacity: 0.6 }} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>供应商</label>
+                  <input type="text" value={editDraft.provider} onChange={e => setEditDraft(d => d ? { ...d, provider: e.target.value } : d)} required />
+                </div>
+                <div className="form-group">
+                  <label>上下文窗口</label>
+                  <input type="text" value={editDraft.contextWindow} onChange={e => setEditDraft(d => d ? { ...d, contextWindow: e.target.value } : d)} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Endpoint</label>
+                <input type="url" value={editDraft.endpoint} onChange={e => setEditDraft(d => d ? { ...d, endpoint: e.target.value } : d)} required />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>API Key（留空不修改）</label>
+                  <input type="password" value={editDraft.apiKey} onChange={e => setEditDraft(d => d ? { ...d, apiKey: e.target.value } : d)} placeholder="不修改请留空" />
+                </div>
+                <div className="form-group">
+                  <label>成本级别</label>
+                  <select value={editDraft.costLevel} onChange={e => setEditDraft(d => d ? { ...d, costLevel: e.target.value } : d)}>
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                  </select>
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-cancel" onClick={() => { setEditingModel(null); setEditDraft(null); }}>取消</button>
+                <button type="submit" className="btn-submit" disabled={submittingId === editingModel.id}>
+                  {submittingId === editingModel.id ? "保存中..." : "保存修改"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

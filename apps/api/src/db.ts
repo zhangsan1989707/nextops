@@ -1670,6 +1670,49 @@ export async function toggleAiModel(id: string): Promise<AiModelRecord | null> {
   }
 }
 
+export async function deleteAiModel(id: string): Promise<boolean> {
+  const result = await pool.query("delete from ai_models where id = $1", [id]);
+  if ((result.rowCount ?? 0) > 0) {
+    const defaultCount = await pool.query<{ count: string }>("select count(*) from ai_models where is_default = true");
+    if (Number(defaultCount.rows[0]?.count ?? 0) === 0) {
+      await pool.query(`
+        update ai_models set is_default = true, updated_at = now()
+        where id = (select id from ai_models where status = 'enabled' order by created_at asc limit 1)
+      `);
+    }
+    return true;
+  }
+  return false;
+}
+
+export async function updateAiModel(id: string, input: Partial<AiModelInput>): Promise<AiModelRecord | null> {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  let idx = 2;
+
+  if (input.name !== undefined) { fields.push(`name = $${idx++}`); values.push(input.name); }
+  if (input.provider !== undefined) { fields.push(`provider = $${idx++}`); values.push(input.provider); }
+  if (input.type !== undefined) { fields.push(`model_type = $${idx++}`); values.push(input.type); }
+  if (input.endpoint !== undefined) { fields.push(`endpoint = $${idx++}`); values.push(input.endpoint); }
+  if (input.contextWindow !== undefined) { fields.push(`context_window = $${idx++}`); values.push(input.contextWindow); }
+  if (input.costLevel !== undefined) { fields.push(`cost_level = $${idx++}`); values.push(input.costLevel); }
+  if (input.capabilities !== undefined) { fields.push(`capabilities = $${idx++}`); values.push(input.capabilities); }
+  if (input.apiKeySecret !== undefined) { fields.push(`api_key_secret = $${idx++}`); values.push(input.apiKeySecret); }
+
+  if (fields.length === 0) {
+    return await getAiModel(id);
+  }
+
+  fields.push("updated_at = now()");
+  const result = await pool.query(
+    `update ai_models set ${fields.join(", ")} where id = $1
+     returning id, name, provider, model_type, status, is_default, context_window,
+       latency_ms, cost_level, capabilities, endpoint, api_key_env_name, api_key_secret`,
+    [id, ...values]
+  );
+  return result.rows[0] ? mapAiModel(result.rows[0]) : null;
+}
+
 export async function getMembers(): Promise<MemberRecord[]> {
   const result = await pool.query(`
     select id, name, email, role, team, status, last_seen_at, permissions

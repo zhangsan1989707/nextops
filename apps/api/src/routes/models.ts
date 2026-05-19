@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getAiModels, getAiModel, getAiModelForRuntime, createAiModel, setDefaultAiModel, toggleAiModel } from "../db.js";
+import { getAiModels, getAiModel, getAiModelForRuntime, createAiModel, setDefaultAiModel, toggleAiModel, deleteAiModel, updateAiModel } from "../db.js";
 import { asyncHandler } from "../utils/helpers.js";
 import { testModelConnectivity } from "../ai.js";
 
@@ -96,6 +96,40 @@ router.post("/:id/test", asyncHandler(async (req, res) => {
     checks: result.checks,
     warnings: result.warnings
   });
+}));
+
+router.delete("/:id", asyncHandler(async (req, res) => {
+  const deleted = await deleteAiModel(String(req.params.id));
+  if (!deleted) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+  res.json({ message: "Model deleted" });
+}));
+
+router.put("/:id", asyncHandler(async (req, res) => {
+  const body = req.body;
+  const input: Record<string, unknown> = {};
+
+  if (body.name !== undefined) input.name = String(body.name).trim();
+  if (body.provider !== undefined) input.provider = String(body.provider).trim();
+  if (body.type !== undefined) input.type = String(body.type).trim();
+  if (body.endpoint !== undefined) input.endpoint = String(body.endpoint).trim();
+  if (body.contextWindow !== undefined) input.contextWindow = String(body.contextWindow).trim();
+  if (body.costLevel !== undefined) input.costLevel = String(body.costLevel).trim();
+  if (body.capabilities !== undefined && Array.isArray(body.capabilities)) {
+    input.capabilities = body.capabilities.map(String).map((s: string) => s.trim()).filter(Boolean);
+  }
+  if (body.apiKey !== undefined && String(body.apiKey).trim()) {
+    input.apiKeySecret = String(body.apiKey).trim();
+  }
+
+  const updated = await updateAiModel(String(req.params.id), input);
+  if (!updated) {
+    res.status(404).json({ message: "Model not found" });
+    return;
+  }
+  res.json(updated);
 }));
 
 export default router;
