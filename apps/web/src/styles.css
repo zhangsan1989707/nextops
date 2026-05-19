@@ -1096,7 +1096,7 @@ select {
 
 .table-row {
   display: grid;
-  grid-template-columns: 1.5fr 0.8fr 0.9fr 0.6fr 0.6fr 0.6fr 1fr;
+  grid-template-columns: 1.5fr 0.8fr 0.8fr 0.8fr 0.6fr 0.6fr 0.6fr 1fr;
   align-items: center;
   gap: 10px;
   min-height: 54px;
@@ -1148,6 +1148,17 @@ select {
 .status.not_installed {
   background: var(--status-warning-bg);
   color: var(--status-warning);
+}
+
+.resource-type-badge {
+  display: inline-block;
+  border-radius: 6px;
+  background: var(--bg-page);
+  font-size: 11px;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
 }
 
 .row-actions {

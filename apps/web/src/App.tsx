@@ -59,6 +59,7 @@ type ServerItem = {
   diskUsage: number;
   loadAvg: number;
   tags: string[];
+  type: string;
 };
 
 type ServerDetailData = ServerItem & {
@@ -360,6 +361,7 @@ type ServerDraft = {
   environment: string;
   os: string;
   tags: string;
+  type: string;
 };
 
 type AgentInstallPlan = {
@@ -396,7 +398,7 @@ const menuGroups = [
   {
     title: "资产与脚本",
     items: [
-      { key: "servers", label: "服务器管理", icon: Server },
+      { key: "servers", label: "资源管理", icon: Server },
       { key: "scripts", label: "脚本中心", icon: FileCode2 },
       { key: "commands", label: "快捷指令", icon: Terminal },
       { key: "packages", label: "包管理", icon: Package },
@@ -501,7 +503,7 @@ export function App() {
   const [memberSummary, setMemberSummary] = useState<MemberSummary | null>(null);
   const [teamSummary, setTeamSummary] = useState<TeamSummary | null>(null);
   const [roleSummary, setRoleSummary] = useState<RoleSummary | null>(null);
-  const [message, setMessage] = useState("帮我巡检生产环境所有 Web 服务器，并生成风险摘要");
+  const [message, setMessage] = useState("帮我巡检生产环境所有资源，并生成风险摘要");
   const [chatResponse, setChatResponse] = useState<ChatResponse | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -597,7 +599,7 @@ export function App() {
       const found = group.items.find((item) => item.key === activePage);
       if (found) return found.label;
     }
-    if (activePage === "server-detail") return "服务器详情";
+    if (activePage === "server-detail") return "资源详情";
     return "仪表盘";
   }, [activePage]);
 
@@ -979,6 +981,54 @@ export function App() {
   );
 }
 
+function severityLabel(s: string) {
+  switch (s) {
+    case "critical": return "严重";
+    case "warning": return "警告";
+    case "info": return "信息";
+    default: return s;
+  }
+}
+
+function alertStatusLabel(s: string) {
+  switch (s) {
+    case "open": return "待处理";
+    case "acknowledged": return "处理中";
+    case "resolved": return "已解决";
+    default: return s;
+  }
+}
+
+function sourceLabel(s: string) {
+  switch (s) {
+    case "server_metrics": return "服务器指标";
+    case "logs": return "日志";
+    case "agent": return "Agent";
+    case "manual": return "手动";
+    default: return s;
+  }
+}
+
+function resourceTypeLabel(t: string) {
+  switch (t) {
+    case "server": return "物理机/虚拟机";
+    case "docker": return "Docker 容器";
+    case "service": return "服务";
+    case "k8s": return "K8s Pod";
+    default: return t;
+  }
+}
+
+function resourceEnvLabel(e: string) {
+  switch (e) {
+    case "production": return "生产环境";
+    case "staging": return "预发布环境";
+    case "testing": return "测试环境";
+    case "development": return "开发环境";
+    default: return e;
+  }
+}
+
 function Alerts({
   alerts,
   servers,
@@ -1026,7 +1076,7 @@ function Alerts({
         </article>
         <article className="metric-card">
           <div className="metric-icon pink"><Bell size={20} /></div>
-          <span>Critical</span>
+          <span>严重告警</span>
           <strong>{criticalCount}</strong>
         </article>
         <article className="metric-card">
@@ -1060,10 +1110,10 @@ function Alerts({
                 }}
                 type="button"
               >
-                <span className={`severity ${alert.severity}`}>{alert.severity}</span>
+                <span className={`severity ${alert.severity}`}>{severityLabel(alert.severity)}</span>
                 <strong>{alert.title}</strong>
-                <small>{serverName(alert.serverId)} · {alert.source}</small>
-                <em>{alert.status}</em>
+                <small>{serverName(alert.serverId)} · {sourceLabel(alert.source)}</small>
+                <em>{alertStatusLabel(alert.status)}</em>
               </button>
             ))}
           </div>
@@ -1079,18 +1129,18 @@ function Alerts({
           {selectedAlert ? (
             <div className="alert-detail">
               <div>
-                <span className={`severity ${selectedAlert.severity}`}>{selectedAlert.severity}</span>
+                <span className={`severity ${selectedAlert.severity}`}>{severityLabel(selectedAlert.severity)}</span>
                 <h3>{selectedAlert.title}</h3>
-                <p>{new Date(selectedAlert.triggeredAt).toLocaleString()} · {selectedAlert.source}</p>
+                <p>{new Date(selectedAlert.triggeredAt).toLocaleString()} · {sourceLabel(selectedAlert.source)}</p>
               </div>
               <dl className="config-list">
-                <div><dt>状态</dt><dd>{selectedAlert.status}</dd></div>
-                <div><dt>关联服务器</dt><dd>{serverName(selectedAlert.serverId)}</dd></div>
+                <div><dt>状态</dt><dd>{alertStatusLabel(selectedAlert.status)}</dd></div>
+                <div><dt>关联资源</dt><dd>{serverName(selectedAlert.serverId)}</dd></div>
                 <div><dt>事件 ID</dt><dd>{selectedAlert.id}</dd></div>
               </dl>
               <div className="detail-actions">
                 <button className="secondary-button" onClick={() => onOpenServer(selectedAlert.serverId)} type="button">
-                  <Server size={16} /> 查看服务器
+                  <Server size={16} /> 查看资源
                 </button>
                 <button
                   className="primary-button"
@@ -2500,8 +2550,8 @@ function Dashboard({
     {
       title: '自动化',
       items: [
-        { label: '部署 Agent', icon: Boxes, action: '为待纳管服务器生成部署计划' },
-        { label: '执行脚本', icon: FileCode2, action: '选择脚本在目标服务器执行' },
+        { label: '部署 Agent', icon: Boxes, action: '为待纳管资源生成部署计划' },
+        { label: '执行脚本', icon: FileCode2, action: '选择脚本在目标资源执行' },
       ]
     }
   ], [aiStatus, primaryServer]);
@@ -2520,7 +2570,7 @@ function Dashboard({
   }), [aiStatus, servers, summary]);
 
   const cards = [
-    { label: "服务器总数", value: summary?.servers.total ?? "--", icon: Server, tone: "blue" },
+    { label: "资源总数", value: summary?.servers.total ?? "--", icon: Server, tone: "blue" },
     { label: "在线 Agent", value: summary?.servers.online ?? "--", icon: Activity, tone: "green" },
     { label: "开放告警", value: summary?.alerts.open ?? "--", icon: Bell, tone: aiStatus.status === 'critical' ? 'red' : 'amber' },
     { label: "今日 AI 诊断", value: summary?.automation.aiDiagnosesToday ?? "--", icon: Bot, tone: "pink" }
@@ -2729,7 +2779,7 @@ function Dashboard({
           <div className="panel-header">
             <div>
               <p className="eyebrow">资产</p>
-              <h2>服务器健康度</h2>
+              <h2>资源健康度</h2>
             </div>
           </div>
           <div className="server-stack">
@@ -2832,13 +2882,17 @@ function Servers({
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingServer, setEditingServer] = useState<ServerItem | null>(null);
+  const [editDraft, setEditDraft] = useState<ServerDraft | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
   const [draft, setDraft] = useState<ServerDraft>({
-    hostname: "demo-node-01",
-    ip: "192.168.1.20",
+    hostname: "",
+    ip: "",
     port: "22",
     environment: "staging",
-    os: "Ubuntu 22.04 LTS",
-    tags: "demo,agent-pending"
+    os: "Linux",
+    tags: "",
+    type: "server"
   });
 
   async function createServer(event: FormEvent) {
@@ -2854,7 +2908,7 @@ function Servers({
       setShowCreate(false);
       await onServerCreated();
     } catch {
-      setError("服务器创建失败，请检查 IP、端口和后端服务状态。");
+      setError("资源创建失败，请检查 IP、端口和后端服务状态。");
     } finally {
       setSaving(false);
     }
@@ -2864,15 +2918,57 @@ function Servers({
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  function startEdit(server: ServerItem) {
+    setEditingServer(server);
+    setEditDraft({
+      hostname: server.hostname,
+      ip: server.ip,
+      port: String(server.port),
+      environment: server.environment,
+      os: server.os,
+      tags: server.tags.join(","),
+      type: server.type
+    });
+  }
+
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingServer || !editDraft) return;
+    setEditSaving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/servers/${editingServer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          hostname: editDraft.hostname,
+          ip: editDraft.ip,
+          port: Number(editDraft.port),
+          environment: editDraft.environment,
+          os: editDraft.os,
+          type: editDraft.type,
+          tags: editDraft.tags
+        })
+      });
+      if (!response.ok) throw new Error("update failed");
+      setEditingServer(null);
+      setEditDraft(null);
+      await onServerCreated();
+    } catch {
+      setError("资源更新失败");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   return (
     <section className="panel full server-page">
       <div className="panel-header">
         <div>
           <p className="eyebrow">资产纳管</p>
-          <h2>服务器列表</h2>
+          <h2>资源列表</h2>
         </div>
         <button className="primary-button" onClick={() => setShowCreate((value) => !value)} type="button">
-          <Server size={16} /> {showCreate ? "收起表单" : "新增服务器"}
+          <Server size={16} /> {showCreate ? "收起表单" : "新增资源"}
         </button>
       </div>
       {showCreate && (
@@ -2890,12 +2986,21 @@ function Servers({
             <input value={draft.port} onChange={(event) => updateDraft("port", event.target.value)} />
           </label>
           <label>
+            类型
+            <select value={draft.type} onChange={(event) => updateDraft("type", event.target.value)}>
+              <option value="server">物理机/虚拟机</option>
+              <option value="docker">Docker 容器</option>
+              <option value="service">服务</option>
+              <option value="k8s">K8s Pod</option>
+            </select>
+          </label>
+          <label>
             环境
             <select value={draft.environment} onChange={(event) => updateDraft("environment", event.target.value)}>
-              <option value="production">production</option>
-              <option value="staging">staging</option>
-              <option value="testing">testing</option>
-              <option value="development">development</option>
+              <option value="production">生产环境</option>
+              <option value="staging">预发布环境</option>
+              <option value="testing">测试环境</option>
+              <option value="development">开发环境</option>
             </select>
           </label>
           <label>
@@ -2917,6 +3022,7 @@ function Servers({
       <div className="table">
         <div className="table-row table-head">
           <span>主机</span>
+          <span>类型</span>
           <span>环境</span>
           <span>Agent</span>
           <span>CPU</span>
@@ -2924,8 +3030,8 @@ function Servers({
           <span>磁盘</span>
           <span>操作</span>
         </div>
-        {loading && <div className="table-empty">正在加载服务器资产...</div>}
-        {!loading && servers.length === 0 && <div className="table-empty">暂无服务器资产</div>}
+        {loading && <div className="table-empty">正在加载资源数据...</div>}
+        {!loading && servers.length === 0 && <div className="table-empty">暂无资源</div>}
         {servers.map((server) => (
           <div className="table-row" key={server.id}>
             <span>
@@ -2934,19 +3040,73 @@ function Servers({
               </button>
               <small>{server.ip}:{server.port}</small>
             </span>
-            <span>{server.environment}</span>
+            <span><span className="resource-type-badge">{resourceTypeLabel(server.type)}</span></span>
+            <span>{resourceEnvLabel(server.environment)}</span>
             <span className={`status ${server.agentStatus}`}>{server.agentStatus}</span>
             <span>{server.cpuUsage}%</span>
             <span>{server.memoryUsage}%</span>
             <span>{server.diskUsage}%</span>
             <span className="row-actions">
+              <button onClick={() => startEdit(server)} title="编辑" type="button"><Settings size={16} /></button>
               <button title="Web SSH" type="button"><Terminal size={16} /></button>
               <button onClick={() => onOpenServer(server.id)} title="性能图" type="button"><Activity size={16} /></button>
-              <button onClick={() => onOpenServer(server.id)} title="告警规则" type="button"><Bell size={16} /></button>
             </span>
           </div>
         ))}
       </div>
+      {editingServer && editDraft && (
+        <div className="modal-overlay" onClick={() => { setEditingServer(null); setEditDraft(null); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>编辑资源</h3>
+            <form className="model-form-v2" onSubmit={saveEdit}>
+              <div className="modal-body">
+                <div className="form-field">
+                  <span>主机名</span>
+                  <input value={editDraft.hostname} onChange={(e) => setEditDraft((d) => d ? { ...d, hostname: e.target.value } : d)} />
+                </div>
+                <div className="form-field">
+                  <span>IP 地址</span>
+                  <input value={editDraft.ip} onChange={(e) => setEditDraft((d) => d ? { ...d, ip: e.target.value } : d)} />
+                </div>
+                <div className="form-field">
+                  <span>端口</span>
+                  <input value={editDraft.port} onChange={(e) => setEditDraft((d) => d ? { ...d, port: e.target.value } : d)} />
+                </div>
+                <div className="form-field">
+                  <span>类型</span>
+                  <select value={editDraft.type} onChange={(e) => setEditDraft((d) => d ? { ...d, type: e.target.value } : d)}>
+                    <option value="server">物理机/虚拟机</option>
+                    <option value="docker">Docker 容器</option>
+                    <option value="service">服务</option>
+                    <option value="k8s">K8s Pod</option>
+                  </select>
+                </div>
+                <div className="form-field">
+                  <span>环境</span>
+                  <select value={editDraft.environment} onChange={(e) => setEditDraft((d) => d ? { ...d, environment: e.target.value } : d)}>
+                    <option value="production">生产环境</option>
+                    <option value="staging">预发布环境</option>
+                    <option value="testing">测试环境</option>
+                    <option value="development">开发环境</option>
+                  </select>
+                </div>
+                <div className="form-field">
+                  <span>系统</span>
+                  <input value={editDraft.os} onChange={(e) => setEditDraft((d) => d ? { ...d, os: e.target.value } : d)} />
+                </div>
+                <div className="form-field">
+                  <span>标签</span>
+                  <input value={editDraft.tags} onChange={(e) => setEditDraft((d) => d ? { ...d, tags: e.target.value } : d)} />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn-secondary" onClick={() => { setEditingServer(null); setEditDraft(null); }} type="button">取消</button>
+                <button className="btn-primary" disabled={editSaving} type="submit">{editSaving ? "保存中" : "保存"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -3007,11 +3167,11 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
   }
 
   if (loading) {
-    return <section className="placeholder"><RefreshCw size={30} /><h2>正在加载服务器详情</h2></section>;
+    return <section className="placeholder"><RefreshCw size={30} /><h2>正在加载资源详情</h2></section>;
   }
 
   if (!server) {
-    return <section className="placeholder"><Server size={30} /><h2>服务器不存在</h2></section>;
+    return <section className="placeholder"><Server size={30} /><h2>资源不存在</h2></section>;
   }
 
   const trends = computeTrends(server.realtime);
@@ -3028,10 +3188,10 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
       <section className="detail-hero">
         <div>
           <button className="text-button" onClick={onBack} type="button">
-            <ArrowLeft size={16} /> 返回服务器列表
+            <ArrowLeft size={16} /> 返回资源列表
           </button>
           <h2>{server.hostname}</h2>
-          <p>{server.ip}:{server.port} · {server.os} · {server.environment}</p>
+          <p>{server.ip}:{server.port} · {server.os} · {resourceEnvLabel(server.environment)} · <span className="resource-type-badge">{resourceTypeLabel(server.type)}</span></p>
           <div className="tag-row">
             {server.tags.map((tag) => <span key={tag}>{tag}</span>)}
           </div>

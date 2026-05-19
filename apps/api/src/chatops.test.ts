@@ -19,7 +19,8 @@ const context: ChatOpsContext = {
       memoryUsage: 62,
       diskUsage: 55,
       loadAvg: 1.2,
-      tags: ["web"]
+      tags: ["web"],
+      type: "server"
     }
   ],
   alerts: [

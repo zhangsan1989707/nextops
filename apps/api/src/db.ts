@@ -21,6 +21,7 @@ export type ServerRecord = {
   diskUsage: number;
   loadAvg: number;
   tags: string[];
+  type: string;
 };
 
 export type ServerInventoryRecord = {
@@ -267,77 +268,9 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000
 });
 
-const demoServers: ServerRecord[] = [
-  {
-    id: "srv-prod-web-01",
-    ip: "10.0.1.21",
-    port: 22,
-    hostname: "prod-web-01",
-    environment: "production",
-    tenant: "default",
-    status: "healthy",
-    agentStatus: "online",
-    os: "Ubuntu 22.04 LTS",
-    cpuUsage: 42,
-    memoryUsage: 67,
-    diskUsage: 58,
-    loadAvg: 1.72,
-    tags: ["web", "nginx", "prod"]
-  },
-  {
-    id: "srv-prod-db-01",
-    ip: "10.0.2.18",
-    port: 22,
-    hostname: "prod-db-01",
-    environment: "production",
-    tenant: "default",
-    status: "warning",
-    agentStatus: "online",
-    os: "Rocky Linux 9",
-    cpuUsage: 71,
-    memoryUsage: 82,
-    diskUsage: 76,
-    loadAvg: 3.41,
-    tags: ["database", "postgres", "prod"]
-  },
-  {
-    id: "srv-stage-api-01",
-    ip: "10.0.8.33",
-    port: 22,
-    hostname: "stage-api-01",
-    environment: "staging",
-    tenant: "default",
-    status: "offline",
-    agentStatus: "not_installed",
-    os: "Debian 12",
-    cpuUsage: 0,
-    memoryUsage: 0,
-    diskUsage: 49,
-    loadAvg: 0,
-    tags: ["api", "staging"]
-  }
-];
+const demoServers: ServerRecord[] = [];
 
-const demoAlerts: AlertRecord[] = [
-  {
-    id: "alt-001",
-    title: "prod-db-01 内存使用率持续高于 80%",
-    severity: "critical",
-    status: "open",
-    source: "server_metrics",
-    serverId: "srv-prod-db-01",
-    triggeredAt: "2026-05-11T02:10:00.000Z"
-  },
-  {
-    id: "alt-002",
-    title: "prod-web-01 nginx 5xx 错误率升高",
-    severity: "warning",
-    status: "acknowledged",
-    source: "logs",
-    serverId: "srv-prod-web-01",
-    triggeredAt: "2026-05-11T02:25:00.000Z"
-  }
-];
+const demoAlerts: AlertRecord[] = [];
 
 const demoScripts: ScriptRecord[] = [
   {
@@ -1002,6 +935,12 @@ const migrations = [
     sql: `
       alter table members add column if not exists password_hash text;
     `
+  },
+  {
+    id: "0010_resource_type",
+    sql: `
+      alter table servers add column if not exists type text not null default 'server';
+    `
   }
 ];
 
@@ -1188,7 +1127,7 @@ async function runMigrations() {
 export async function getServers(): Promise<ServerRecord[]> {
   const result = await pool.query(`
     select id, ip, port, hostname, environment, tenant, status, agent_status, os,
-      cpu_usage, memory_usage, disk_usage, load_avg, tags
+      cpu_usage, memory_usage, disk_usage, load_avg, tags, type
     from servers
     order by created_at asc
   `);
@@ -1199,7 +1138,7 @@ export async function getServer(id: string): Promise<ServerRecord | null> {
   const result = await pool.query(
     `
       select id, ip, port, hostname, environment, tenant, status, agent_status, os,
-        cpu_usage, memory_usage, disk_usage, load_avg, tags
+        cpu_usage, memory_usage, disk_usage, load_avg, tags, type
       from servers
       where id = $1
     `,
@@ -1213,11 +1152,11 @@ export async function createServer(input: ServerRecord): Promise<ServerRecord> {
     `
       insert into servers (
         id, ip, port, hostname, environment, tenant, status, agent_status, os,
-        cpu_usage, memory_usage, disk_usage, load_avg, tags
+        cpu_usage, memory_usage, disk_usage, load_avg, tags, type
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       returning id, ip, port, hostname, environment, tenant, status, agent_status, os,
-        cpu_usage, memory_usage, disk_usage, load_avg, tags
+        cpu_usage, memory_usage, disk_usage, load_avg, tags, type
     `,
     [
       input.id,
@@ -1233,10 +1172,47 @@ export async function createServer(input: ServerRecord): Promise<ServerRecord> {
       input.memoryUsage,
       input.diskUsage,
       input.loadAvg,
-      input.tags
+      input.tags,
+      input.type
     ]
   );
   return mapServer(result.rows[0]);
+}
+
+export async function updateServer(id: string, input: Record<string, unknown>): Promise<ServerRecord | null> {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+
+  const columnMap: Record<string, string> = {
+    hostname: "hostname",
+    ip: "ip",
+    port: "port",
+    environment: "environment",
+    os: "os",
+    type: "type",
+    tags: "tags"
+  };
+
+  for (const [key, column] of Object.entries(columnMap)) {
+    if (input[key] !== undefined) {
+      fields.push(`${column} = $${idx++}`);
+      values.push(input[key]);
+    }
+  }
+
+  if (fields.length === 0) {
+    return getServer(id);
+  }
+
+  fields.push("updated_at = now()");
+  values.push(id);
+
+  const result = await pool.query(
+    `update servers set ${fields.join(", ")} where id = $${idx} returning id, ip, port, hostname, environment, tenant, status, agent_status, os, cpu_usage, memory_usage, disk_usage, load_avg, tags, type`,
+    values
+  );
+  return result.rows[0] ? mapServer(result.rows[0]) : null;
 }
 
 export async function registerAgent(input: AgentRegistrationInput): Promise<ServerRecord> {
@@ -1248,9 +1224,9 @@ export async function registerAgent(input: AgentRegistrationInput): Promise<Serv
       `
         insert into servers (
           id, ip, port, hostname, environment, tenant, status, agent_status, os,
-          cpu_usage, memory_usage, disk_usage, load_avg, tags
+          cpu_usage, memory_usage, disk_usage, load_avg, tags, type
         )
-        values ($1, $2, 0, $3, $4, 'default', 'healthy', 'online', $5, 0, 0, 0, 0, $6)
+        values ($1, $2, 0, $3, $4, 'default', 'healthy', 'online', $5, 0, 0, 0, 0, $6, 'server')
         on conflict (id) do update
         set ip = excluded.ip,
           hostname = excluded.hostname,
@@ -1261,7 +1237,7 @@ export async function registerAgent(input: AgentRegistrationInput): Promise<Serv
           tags = excluded.tags,
           updated_at = now()
         returning id, ip, port, hostname, environment, tenant, status, agent_status, os,
-          cpu_usage, memory_usage, disk_usage, load_avg, tags
+          cpu_usage, memory_usage, disk_usage, load_avg, tags, type
       `,
       [serverId, input.ip, input.hostname, input.environment, input.os, input.tags]
     );
@@ -2034,7 +2010,8 @@ function mapServer(row: Record<string, unknown>): ServerRecord {
     memoryUsage: Number(row.memory_usage),
     diskUsage: Number(row.disk_usage),
     loadAvg: Number(row.load_avg),
-    tags: Array.isArray(row.tags) ? row.tags.map(String) : []
+    tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+    type: String(row.type ?? "server")
   };
 }
 

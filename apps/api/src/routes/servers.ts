@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getServers, getServer, createServer, getServerInventory, getServerMetrics, getLatestExtendedMetrics, createAuditLog, type ServerRecord } from "../db.js";
+import { getServers, getServer, createServer, updateServer, getServerInventory, getServerMetrics, getLatestExtendedMetrics, createAuditLog, type ServerRecord } from "../db.js";
 import { asyncHandler, buildAlertRules, parseTags } from "../utils/helpers.js";
 
 const router = Router();
@@ -33,7 +33,8 @@ router.post("/", asyncHandler(async (req, res) => {
     memoryUsage: 0,
     diskUsage: 0,
     loadAvg: 0,
-    tags: parseTags(req.body?.tags)
+    tags: parseTags(req.body?.tags),
+    type: String(req.body?.type ?? "server")
   };
 
   const createdServer = await createServer(server);
@@ -101,6 +102,35 @@ router.get("/:id", asyncHandler(async (req, res) => {
     dataMode: hasRealMetrics ? "agent_metrics" : "no_agent_metrics",
     warnings: hasRealMetrics ? [] : ["暂无 Agent 真实指标。请启动本机 Agent 后刷新页面。"]
   });
+}));
+
+router.put("/:id", asyncHandler(async (req, res) => {
+  const id = String(req.params.id);
+  const body = req.body;
+  const input: Record<string, unknown> = {};
+
+  if (body.hostname !== undefined) input.hostname = String(body.hostname).trim();
+  if (body.ip !== undefined) input.ip = String(body.ip).trim();
+  if (body.port !== undefined) input.port = Number(body.port);
+  if (body.environment !== undefined) input.environment = String(body.environment).trim();
+  if (body.os !== undefined) input.os = String(body.os).trim();
+  if (body.type !== undefined) input.type = String(body.type).trim();
+  if (body.tags !== undefined) input.tags = parseTags(body.tags);
+
+  const updated = await updateServer(id, input);
+  if (!updated) {
+    res.status(404).json({ message: "Resource not found" });
+    return;
+  }
+  await createAuditLog({
+    action: "server.update",
+    actor: "ops-admin",
+    resourceType: "server",
+    resourceId: id,
+    summary: `更新资源 ${updated.hostname}`,
+    details: input
+  });
+  res.json(updated);
 }));
 
 router.get("/:id/processes", asyncHandler(async (req, res) => {
