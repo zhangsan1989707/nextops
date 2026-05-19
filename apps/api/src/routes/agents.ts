@@ -1,11 +1,13 @@
 import { Router } from "express";
-import { registerAgent, recordAgentMetrics, createTaskRecord, getServer, createAuditLog } from "../db.js";
+import { registerAgent, recordAgentMetrics, getServer } from "../services/server.service.js";
+import { createTaskRecord, createAuditLog } from "../db.js";
 import { asyncHandler, clampPercent } from "../utils/helpers.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { agentAuthMiddleware } from "../middleware/agent-auth.js";
 
 const router = Router();
 
-router.post("/register", asyncHandler(async (req, res) => {
+router.post("/register", agentAuthMiddleware, asyncHandler(async (req, res) => {
   const body = req.body;
   const agentId = String(body.agentId ?? "").trim();
   const hostname = String(body.hostname ?? "").trim();
@@ -43,7 +45,7 @@ router.post("/register", asyncHandler(async (req, res) => {
   res.status(201).json({ server, agentId });
 }));
 
-router.post("/:id/metrics", asyncHandler(async (req, res) => {
+router.post("/:id/metrics", agentAuthMiddleware, asyncHandler(async (req, res) => {
   const input = req.body;
   const id = String(req.params.id);
   const metric = await recordAgentMetrics(id, {

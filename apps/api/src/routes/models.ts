@@ -1,21 +1,13 @@
 import { Router } from "express";
-import { getAiModels, getAiModel, getAiModelForRuntime, createAiModel, setDefaultAiModel, toggleAiModel, deleteAiModel, updateAiModel } from "../db.js";
+import { getModelStats, getAiModelForRuntime, createAiModel, setDefaultAiModel, toggleAiModel, deleteAiModel, updateAiModel } from "../services/model.service.js";
+import { getAiModel } from "../db.js";
 import { asyncHandler } from "../utils/helpers.js";
 import { testModelConnectivity } from "../ai.js";
 
 const router = Router();
 
 router.get("/", asyncHandler(async (_req, res) => {
-  const models = await getAiModels();
-  res.json({
-    items: models,
-    totals: {
-      models: models.length,
-      enabled: models.filter((model) => model.status === "enabled").length,
-      chat: models.filter((model) => model.type === "chat").length,
-      embedding: models.filter((model) => model.type === "embedding").length
-    }
-  });
+  res.json(await getModelStats());
 }));
 
 router.post("/", asyncHandler(async (req, res) => {
