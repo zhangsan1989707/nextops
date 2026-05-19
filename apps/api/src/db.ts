@@ -1153,7 +1153,7 @@ async function seedDemoAssets() {
   if (Number(modelCount.rows[0]?.count ?? 0) === 0) {
     for (const m of demoModels) {
       await pool.query(
-        `insert into ai_models (id, name, provider, type, status, is_default, context_window, latency_ms, cost_level, capabilities, endpoint, api_key_env_name)
+        `insert into ai_models (id, name, provider, model_type, status, is_default, context_window, latency_ms, cost_level, capabilities, endpoint, api_key_env_name)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict (id) do nothing`,
         [m.id, m.name, m.provider, m.type, m.status, m.isDefault, m.contextWindow, m.latencyMs, m.costLevel, m.capabilities, m.endpoint, m.apiKeyEnvName ?? null]
       );
