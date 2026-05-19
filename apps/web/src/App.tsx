@@ -39,6 +39,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ModelsPage from "./components/Models";
 import { HealthRing, StatusDot } from "./components/HealthRing";
+import { Sparkline, TrendArrow } from "./components/Sparkline";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -1492,7 +1493,7 @@ function Commands({ commands }: { commands: SlashCommandItem[] }) {
               <p className="eyebrow">ChatOps</p>
               <h2>执行计划</h2>
             </div>
-            <span className="status">{response.riskLevel}</span>
+            <span className={`risk-badge ${response.riskLevel}`}>{riskLabel(response.riskLevel)}</span>
           </div>
           <p className="diagnosis-summary">{response.reply}</p>
           <ol className="plan-list">
@@ -2774,9 +2775,16 @@ function Dashboard({
             </button>
           </div>
           <div className="trend-grid">
-            {(summary?.trends ?? []).map((item) => (
+            {(summary?.trends ?? []).map((item, idx) => (
               <div className="trend-item" key={item.label}>
-                <span>{item.label}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{item.label}</span>
+                  <Sparkline
+                    data={summary?.trends.map((t) => (t.cpu + t.memory) / 2) ?? []}
+                    color={item.cpu > 75 ? "falling" : "stable"}
+                    height={24}
+                  />
+                </div>
                 <div className="bar">
                   <i style={{ height: `${item.cpu}%` }} />
                   <i style={{ height: `${item.memory}%` }} />
@@ -2889,7 +2897,7 @@ function ChatOps({
                     {item.response.taskId && <span>任务：{item.response.taskId}</span>}
                   </div>
                 )}
-                <p>{item.content || (item.streaming ? "正在生成..." : "")}</p>
+                <p>{item.content || (item.streaming ? <span className="chat-loading-dots"><span /><span /><span /></span> : "")}</p>
                 {item.streaming && <span className="typing-cursor" />}
 
                 {item.role === "assistant" && item.response?.plan && item.response.plan.length > 0 && (
