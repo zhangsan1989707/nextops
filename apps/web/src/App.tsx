@@ -6,6 +6,7 @@ import {
   Boxes,
   Building2,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Clock,
   Code2,
@@ -19,6 +20,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Minus,
+  Moon,
   Package,
   PlayCircle,
   RefreshCw,
@@ -26,6 +28,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  Sun,
   Terminal,
   TrendingDown,
   TrendingUp,
@@ -354,6 +357,15 @@ type ChatMessage = {
   streaming?: boolean;
 };
 
+type TimelineTask = {
+  id: string;
+  taskType: string;
+  status: string;
+  riskLevel: string;
+  summary: string;
+  createdAt: string;
+};
+
 type ServerDraft = {
   hostname: string;
   ip: string;
@@ -517,8 +529,16 @@ export function App() {
   const [pageLoading, setPageLoading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(menuGroups.map((g) => [g.title, true]))
+  );
+  const [theme, setTheme] = useState<string>(() => localStorage.getItem("nextops-theme") ?? "light");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("nextops-theme", theme);
+  }, [theme]);
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -819,26 +839,46 @@ export function App() {
         </div>
 
         <nav className="nav">
-          {menuGroups.map((group) => (
-            <section key={group.title} className="nav-group">
-              <p>{group.title}</p>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={activePage === item.key ? "nav-item active" : "nav-item"}
-                    key={item.key}
-                    onClick={() => setActivePage(item.key)}
-                    title={item.label}
-                    type="button"
-                  >
-                    <Icon size={18} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </section>
-          ))}
+          {menuGroups.map((group) => {
+            const expanded = expandedGroups[group.title] ?? true;
+            return (
+              <section key={group.title} className="nav-group">
+                <button
+                  className="nav-group-header"
+                  onClick={() =>
+                    setExpandedGroups((prev) => ({
+                      ...prev,
+                      [group.title]: !(prev[group.title] ?? true)
+                    }))
+                  }
+                  type="button"
+                >
+                  <span>{group.title}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`nav-group-chevron ${expanded ? "" : "collapsed"}`}
+                  />
+                </button>
+                <div className={`nav-group-items ${expanded ? "expanded" : "collapsed"}`}>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        className={activePage === item.key ? "nav-item active" : "nav-item"}
+                        key={item.key}
+                        onClick={() => setActivePage(item.key)}
+                        title={item.label}
+                        type="button"
+                      >
+                        <Icon size={18} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
         </nav>
       </aside>
 
@@ -865,43 +905,14 @@ export function App() {
                 退出
               </button>
             </div>
-            <div className="settings-menu">
-              <button
-                aria-expanded={settingsOpen}
-                aria-label="系统设置"
-                className="icon-button"
-                onClick={() => setSettingsOpen((open) => !open)}
-                type="button"
-                title="系统设置"
-              >
-                <Settings size={18} />
-              </button>
-              {settingsOpen && (
-                <div className="settings-popover">
-                  {[
-                    { key: "models", label: "模型管理", icon: Bot },
-                    { key: "members", label: "成员管理", icon: Users },
-                    { key: "teams", label: "团队结构", icon: GitBranch },
-                    { key: "roles", label: "权限与角色", icon: KeyRound }
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.key}
-                        onClick={() => {
-                          setActivePage(item.key);
-                          setSettingsOpen(false);
-                        }}
-                        type="button"
-                      >
-                        <Icon size={16} />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <button
+              className="dark-toggle"
+              onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+              type="button"
+              title={theme === "dark" ? "切换亮色模式" : "切换暗色模式"}
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
           </div>
         </header>
 
@@ -2793,6 +2804,37 @@ function Dashboard({
   );
 }
 
+function parseMetrics(text: string): Array<{ label: string; value: number }> {
+  const pattern = /(CPU|内存|磁盘|Memory|Disk|Load|负载)\s*:?\s*(\d+)%/gi;
+  const results: Array<{ label: string; value: number }> = [];
+  const seen = new Set<string>();
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const label = match[1];
+    if (!seen.has(label)) {
+      seen.add(label);
+      results.push({ label, value: Number(match[2]) });
+    }
+  }
+  return results;
+}
+
+function riskLabel(risk: string) {
+  switch (risk) {
+    case "low": return "低风险";
+    case "medium": return "中风险";
+    case "high": return "高风险";
+    default: return risk;
+  }
+}
+
+const QUICK_COMMANDS = [
+  { label: "巡检", template: "帮我巡检所有资源，并生成风险摘要" },
+  { label: "诊断", template: "帮我诊断当前告警，给出证据链和修复计划" },
+  { label: "部署", template: "部署最新版本到生产环境" },
+  { label: "SSH", template: "SSH 连接到服务器" }
+];
+
 function ChatOps({
   message,
   setMessage,
@@ -2808,6 +2850,14 @@ function ChatOps({
   response: ChatResponse | null;
   loading: boolean;
 }) {
+  const [recentTasks, setRecentTasks] = useState<TimelineTask[]>([]);
+
+  useEffect(() => {
+    fetchJson<{ items: TimelineTask[] }>("/api/tasks")
+      .then((data) => setRecentTasks(data.items))
+      .catch(() => {});
+  }, [response?.taskId]);
+
   return (
     <section className="chat-layout">
       <div className="chat-panel">
@@ -2829,14 +2879,47 @@ function ChatOps({
                 {item.response && (
                   <div className="result-meta">
                     {item.response.intent && <span>意图：{item.response.intent}</span>}
-                    {item.response.riskLevel && <span>风险：{item.response.riskLevel}</span>}
+                    {item.response.riskLevel && (
+                      <span className={`risk-badge ${item.response.riskLevel}`}>
+                        {riskLabel(item.response.riskLevel)}
+                      </span>
+                    )}
                     {item.response.mode && <span>模式：{item.response.mode}</span>}
-                    {item.response.executionMode && <span>执行：{item.response.executionMode}</span>}
                     {item.response.taskId && <span>任务：{item.response.taskId}</span>}
                   </div>
                 )}
                 <p>{item.content || (item.streaming ? "正在生成..." : "")}</p>
                 {item.streaming && <span className="typing-cursor" />}
+
+                {item.role === "assistant" && item.response?.plan && item.response.plan.length > 0 && (
+                  <div className="chat-plan-cards">
+                    {item.response.plan.map((step, idx) => (
+                      <div className="chat-plan-card" key={idx}>
+                        <span className="plan-step-number">{idx + 1}</span>
+                        <span className="plan-step-text">{step}</span>
+                        <CheckCircle2 size={14} className="plan-step-icon done" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {item.role === "assistant" && parseMetrics(item.content).length > 0 && (
+                  <div className="mini-metrics">
+                    {parseMetrics(item.content).map((m) => (
+                      <div className="mini-metric-bar" key={m.label}>
+                        <span className="mini-metric-label">{m.label}</span>
+                        <span className="mini-metric-track">
+                          <i
+                            style={{ width: `${m.value}%` }}
+                            className={m.value > 85 ? "critical" : m.value > 70 ? "warning" : "healthy"}
+                          />
+                        </span>
+                        <b className="mini-metric-value">{m.value}%</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {item.response?.warnings && item.response.warnings.length > 0 && (
                   <div className="warning-list">
                     {item.response.warnings.map((warning) => (
@@ -2848,6 +2931,21 @@ function ChatOps({
             </article>
           ))}
         </div>
+
+        {!message.trim() && messages.length <= 1 && (
+          <div className="quick-commands">
+            {QUICK_COMMANDS.map((cmd) => (
+              <button
+                className="quick-command-chip"
+                key={cmd.label}
+                onClick={() => setMessage(cmd.template)}
+                type="button"
+              >
+                {cmd.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <form className="chat-composer" onSubmit={sendMessage}>
           <div className="composer-box">
@@ -2864,8 +2962,36 @@ function ChatOps({
           </div>
         </form>
       </div>
+
+      <aside className="task-timeline">
+        <h3>最近任务</h3>
+        {recentTasks.length === 0 && <p className="timeline-empty">暂无任务记录</p>}
+        {recentTasks.map((task) => (
+          <div className="timeline-item" key={task.id}>
+            <div className={`timeline-dot ${task.riskLevel === "high" ? "critical" : task.riskLevel === "medium" ? "warning" : "healthy"}`} />
+            <div className="timeline-content">
+              <div className="timeline-header">
+                <span className="timeline-type">{task.taskType}</span>
+                <span className={`risk-badge ${task.riskLevel}`}>{task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}</span>
+              </div>
+              <p className="timeline-summary">{task.summary}</p>
+              <span className="timeline-time">{formatRelativeTime(task.createdAt)}</span>
+            </div>
+          </div>
+        ))}
+      </aside>
     </section>
   );
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 function Servers({
@@ -3042,7 +3168,10 @@ function Servers({
             </span>
             <span><span className="resource-type-badge">{resourceTypeLabel(server.type)}</span></span>
             <span>{resourceEnvLabel(server.environment)}</span>
-            <span className={`status ${server.agentStatus}`}>{server.agentStatus}</span>
+            <span className="agent-status">
+              <span className={`agent-status-dot ${server.agentStatus === "online" ? "online" : "offline"}`} />
+              {server.agentStatus === "online" ? "在线" : server.agentStatus === "not_installed" ? "未安装" : "离线"}
+            </span>
             <span>{server.cpuUsage}%</span>
             <span>{server.memoryUsage}%</span>
             <span>{server.diskUsage}%</span>
