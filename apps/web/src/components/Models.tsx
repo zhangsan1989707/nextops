@@ -833,59 +833,61 @@ export default function Models({ summary }: ModelsProps) {
       {/* 编辑模型模态框 */}
       {editingModel && editDraft && (
         <div className="modal-overlay" onClick={() => { setEditingModel(null); setEditDraft(null); }}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>编辑模型</h2>
               <button className="modal-close" onClick={() => { setEditingModel(null); setEditDraft(null); }}>
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={submitEdit} className="modal-form">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>模型名称</label>
-                  <input type="text" value={editDraft.name} onChange={e => setEditDraft(d => d ? { ...d, name: e.target.value } : d)} required />
+            <div className="modal-body">
+              <form onSubmit={submitEdit} className="model-form-v2">
+                <div className="form-row">
+                  <label className="form-field">
+                    <span>模型名称</span>
+                    <input type="text" value={editDraft.name} onChange={e => setEditDraft(d => d ? { ...d, name: e.target.value } : d)} required />
+                  </label>
+                  <label className="form-field">
+                    <span>模型 ID</span>
+                    <input type="text" value={editDraft.id} disabled style={{ opacity: 0.6 }} />
+                  </label>
                 </div>
-                <div className="form-group">
-                  <label>模型 ID</label>
-                  <input type="text" value={editDraft.id} disabled style={{ opacity: 0.6 }} />
+                <div className="form-row">
+                  <label className="form-field">
+                    <span>供应商</span>
+                    <input type="text" value={editDraft.provider} onChange={e => setEditDraft(d => d ? { ...d, provider: e.target.value } : d)} required />
+                  </label>
+                  <label className="form-field">
+                    <span>上下文窗口</span>
+                    <input type="text" value={editDraft.contextWindow} onChange={e => setEditDraft(d => d ? { ...d, contextWindow: e.target.value } : d)} />
+                  </label>
                 </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>供应商</label>
-                  <input type="text" value={editDraft.provider} onChange={e => setEditDraft(d => d ? { ...d, provider: e.target.value } : d)} required />
+                <label className="form-field full">
+                  <span>Endpoint</span>
+                  <input type="url" value={editDraft.endpoint} onChange={e => setEditDraft(d => d ? { ...d, endpoint: e.target.value } : d)} required />
+                </label>
+                <div className="form-row">
+                  <label className="form-field">
+                    <span>API Key（留空不修改）</span>
+                    <input type="password" value={editDraft.apiKey} onChange={e => setEditDraft(d => d ? { ...d, apiKey: e.target.value } : d)} placeholder="不修改请留空" />
+                  </label>
+                  <label className="form-field">
+                    <span>成本级别</span>
+                    <select value={editDraft.costLevel} onChange={e => setEditDraft(d => d ? { ...d, costLevel: e.target.value } : d)}>
+                      <option value="low">低</option>
+                      <option value="medium">中</option>
+                      <option value="high">高</option>
+                    </select>
+                  </label>
                 </div>
-                <div className="form-group">
-                  <label>上下文窗口</label>
-                  <input type="text" value={editDraft.contextWindow} onChange={e => setEditDraft(d => d ? { ...d, contextWindow: e.target.value } : d)} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Endpoint</label>
-                <input type="url" value={editDraft.endpoint} onChange={e => setEditDraft(d => d ? { ...d, endpoint: e.target.value } : d)} required />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>API Key（留空不修改）</label>
-                  <input type="password" value={editDraft.apiKey} onChange={e => setEditDraft(d => d ? { ...d, apiKey: e.target.value } : d)} placeholder="不修改请留空" />
-                </div>
-                <div className="form-group">
-                  <label>成本级别</label>
-                  <select value={editDraft.costLevel} onChange={e => setEditDraft(d => d ? { ...d, costLevel: e.target.value } : d)}>
-                    <option value="low">低</option>
-                    <option value="medium">中</option>
-                    <option value="high">高</option>
-                  </select>
-                </div>
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn-cancel" onClick={() => { setEditingModel(null); setEditDraft(null); }}>取消</button>
-                <button type="submit" className="btn-submit" disabled={submittingId === editingModel.id}>
-                  {submittingId === editingModel.id ? "保存中..." : "保存修改"}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn-secondary" onClick={() => { setEditingModel(null); setEditDraft(null); }}>取消</button>
+              <button type="button" className="btn-primary" disabled={submittingId === editingModel.id} onClick={submitEdit}>
+                {submittingId === editingModel.id ? "保存中..." : "保存修改"}
+              </button>
+            </div>
           </div>
         </div>
       )}
