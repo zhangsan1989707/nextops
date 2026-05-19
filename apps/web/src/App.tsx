@@ -553,54 +553,38 @@ export function App() {
 
   if (!authUser) {
     return (
-      <div className="app-shell" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <form onSubmit={handleLogin} style={{
-          width: 360,
-          padding: 32,
-          background: "var(--card-bg, #1a1f2e)",
-          borderRadius: 12,
-          display: "flex",
-          flexDirection: "column",
-          gap: 16
-        }}>
-          <div style={{ textAlign: "center", marginBottom: 8 }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 48, height: 48, borderRadius: 12, background: "#6366f1",
-              fontSize: 24, fontWeight: 700, color: "#fff", marginBottom: 12
-            }}>N</div>
-            <h2 style={{ margin: 0, fontSize: 20 }}>登录 NextOps</h2>
-            <p style={{ margin: "4px 0 0", color: "#888", fontSize: 13 }}>AI Operations Platform</p>
+      <div className="login-page">
+        <form className="login-form" onSubmit={handleLogin}>
+          <div className="login-header">
+            <div className="login-logo">N</div>
+            <h2>登录 NextOps</h2>
+            <p>AI Operations Platform</p>
           </div>
-          {loginError && <p style={{ color: "#f87171", margin: 0, fontSize: 13 }}>{loginError}</p>}
+          {loginError && <p className="login-error">{loginError}</p>}
           <input
+            className="login-input"
             type="email"
             placeholder="邮箱地址"
             value={loginEmail}
             onChange={(e) => setLoginEmail(e.target.value)}
             required
-            style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #333", background: "#0f1218", color: "#eee", fontSize: 14 }}
           />
           <input
+            className="login-input"
             type="password"
             placeholder="密码"
             value={loginPassword}
             onChange={(e) => setLoginPassword(e.target.value)}
             required
-            style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #333", background: "#0f1218", color: "#eee", fontSize: 14 }}
           />
           <button
+            className="login-button"
             type="submit"
             disabled={loginLoading}
-            style={{
-              padding: "10px 0", borderRadius: 8, border: "none",
-              background: "#6366f1", color: "#fff", fontSize: 14, fontWeight: 600,
-              cursor: loginLoading ? "wait" : "pointer"
-            }}
           >
             {loginLoading ? "登录中..." : "登录"}
           </button>
-          <p style={{ margin: 0, color: "#666", fontSize: 12, textAlign: "center" }}>
+          <p className="login-hint">
             演示账号: leo@example.com / admin123
           </p>
         </form>
@@ -867,12 +851,13 @@ export function App() {
               <Search size={16} />
               <input placeholder="搜索服务器、告警、脚本或指令" />
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#aaa" }}>
-              <span>{authUser.name} ({authUser.role})</span>
+            <div className="user-area">
+              <span className="user-name">{authUser.name}</span>
+              <span className="user-role">({authUser.role})</span>
               <button
+                className="logout-button"
                 onClick={handleLogout}
                 type="button"
-                style={{ background: "none", border: "1px solid #444", borderRadius: 6, color: "#aaa", padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
                 title="退出登录"
               >
                 退出
@@ -921,6 +906,7 @@ export function App() {
         {pageError && <div className="table-empty">当前页面数据加载失败：{pageError}</div>}
         {pageLoading && activePage !== "servers" && <div className="table-empty">正在加载当前页面数据...</div>}
 
+        <div className="page-content" key={activePage}>
         {activePage === "dashboard" && <Dashboard summary={summary} servers={servers} onQuickAction={startQuickChat} />}
         {activePage === "chatops" && (
           <ChatOps
@@ -987,6 +973,7 @@ export function App() {
           activePage !== "teams" &&
           activePage !== "roles" &&
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
+        </div>
       </main>
     </div>
   );
