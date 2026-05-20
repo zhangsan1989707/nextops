@@ -20,5 +20,8 @@
     "agent:local": "npm run dev -w @nextops/agent",
     "nightly:codex": "zsh scripts/nightly-codex-dev.sh",
     "nightly:install": "zsh scripts/install-nightly-codex-launchd.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }

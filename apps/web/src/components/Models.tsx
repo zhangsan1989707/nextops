@@ -400,7 +400,7 @@ export default function Models({ summary }: ModelsProps) {
         ...modelDraft,
         capabilities: modelDraft.provider.includes("Local")
           ? ["内网知识问答", "脚本生成", "日志诊断"]
-          : ["ChatOps", "日志诊断", "修复方案生成"]
+          : ["AI Copilot", "日志诊断", "修复方案生成"]
       });
       setModels(current => {
         const next = modelDraft.setDefault
