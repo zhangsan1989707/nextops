@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getScripts, getScript, getServer, createTaskRecord, createAuditLog } from "../db.js";
-import { asyncHandler } from "../utils/helpers.js";
+import { asyncHandler, getActor } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -57,7 +57,7 @@ router.post("/:id/run", asyncHandler(async (req, res) => {
 
   await createAuditLog({
     action: "script.run",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "script",
     resourceId: script.id,
     summary: `向 ${target.hostname} 发起脚本 ${script.name}`,

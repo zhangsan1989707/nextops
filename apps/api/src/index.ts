@@ -5,6 +5,7 @@ import express from "express";
 import cors from "cors";
 import { errorHandler } from "./middleware/error.js";
 import { authMiddleware } from "./middleware/auth.js";
+import { rateLimiter } from "./middleware/rate-limiter.js";
 import { initializeDatabase } from "./db.js";
 
 // Routes
@@ -39,6 +40,8 @@ app.use(cors({
   origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : false,
   credentials: true
 }));
+
+app.use(rateLimiter);
 
 // Health check
 app.use("/health", healthRouter);

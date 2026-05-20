@@ -49,6 +49,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
   
   req.user = payload;
+  res.locals.actor = payload.email ?? payload.userId ?? "unknown";
   next();
 }
 

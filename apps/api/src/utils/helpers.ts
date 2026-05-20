@@ -1,5 +1,9 @@
 import type express from "express";
 
+export function getActor(res: express.Response): string {
+  return (res.locals.actor as string) ?? "ops-admin";
+}
+
 export function parseTags(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map(String).filter(Boolean);

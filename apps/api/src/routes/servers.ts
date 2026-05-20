@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getServers, getServer, createServer, updateServer, getServerInventory, getServerMetrics, getLatestExtendedMetrics, createAuditLog, type ServerRecord } from "../db.js";
-import { asyncHandler, buildAlertRules, parseTags } from "../utils/helpers.js";
+import { asyncHandler, buildAlertRules, getActor, parseTags } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -40,7 +40,7 @@ router.post("/", asyncHandler(async (req, res) => {
   const createdServer = await createServer(server);
   await createAuditLog({
     action: "server.create",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "server",
     resourceId: createdServer.id,
     summary: `纳管服务器 ${createdServer.hostname}`,
@@ -124,7 +124,7 @@ router.put("/:id", asyncHandler(async (req, res) => {
   }
   await createAuditLog({
     action: "server.update",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "server",
     resourceId: id,
     summary: `更新资源 ${updated.hostname}`,

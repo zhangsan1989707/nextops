@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getApprovalTickets, reviewApprovalTicket, createAuditLog } from "../db.js";
-import { asyncHandler } from "../utils/helpers.js";
+import { asyncHandler, getActor } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -27,7 +27,8 @@ router.post("/:id/action", asyncHandler(async (req, res) => {
   const ticket = await reviewApprovalTicket(
     String(req.params.id),
     action,
-    String(comment ?? "").trim() || (action === "approve" ? "审批通过。" : "审批驳回。")
+    String(comment ?? "").trim() || (action === "approve" ? "审批通过。" : "审批驳回。"),
+    getActor(res)
   );
 
   if (!ticket) {
@@ -37,7 +38,7 @@ router.post("/:id/action", asyncHandler(async (req, res) => {
 
   await createAuditLog({
     action: `approval.${action}`,
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "approval_ticket",
     resourceId: ticket.id,
     summary: `${action === "approve" ? "通过" : "驳回"}审批工单 ${ticket.title}`,

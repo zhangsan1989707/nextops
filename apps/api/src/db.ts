@@ -1840,13 +1840,14 @@ export async function getApprovalTickets(): Promise<ApprovalTicketRecord[]> {
 export async function reviewApprovalTicket(
   id: string,
   action: "approve" | "reject",
-  comment: string
+  comment: string,
+  reviewer: string
 ): Promise<ApprovalTicketRecord | null> {
   const result = await pool.query(
     `
       update approval_tickets
       set status = $2,
-        reviewer = 'ops-admin',
+        reviewer = $4,
         reviewed_at = now(),
         comment = $3,
         updated_at = now()
@@ -1854,7 +1855,7 @@ export async function reviewApprovalTicket(
       returning id, title, ticket_type, status, risk_level, requester, target, environment,
         created_at, reviewed_at, reviewer, comment, summary, steps, related_resource
     `,
-    [id, action === "approve" ? "approved" : "rejected", comment]
+    [id, action === "approve" ? "approved" : "rejected", comment, reviewer]
   );
   return result.rows[0] ? mapApprovalTicket(result.rows[0]) : null;
 }

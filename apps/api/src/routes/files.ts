@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getManagedFiles, getManagedFile, getServer, createTaskRecord, createAuditLog } from "../db.js";
-import { asyncHandler } from "../utils/helpers.js";
+import { asyncHandler, getActor } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -47,7 +47,7 @@ router.post("/:id/transfer-plan", asyncHandler(async (req, res) => {
 
   await createAuditLog({
     action: "file.transfer_plan",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "file",
     resourceId: file.id,
     summary: `生成 ${file.name} 文件${mode === "pull" ? "拉取" : "分发"}计划`,

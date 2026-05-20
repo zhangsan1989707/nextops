@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getPackages, getPackage, getServer, createTaskRecord, createAuditLog } from "../db.js";
-import { asyncHandler } from "../utils/helpers.js";
+import { asyncHandler, getActor } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -48,7 +48,7 @@ router.post("/:id/deploy-plan", asyncHandler(async (req, res) => {
 
   await createAuditLog({
     action: "package.deploy_plan",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "package",
     resourceId: item.id,
     summary: `生成 ${item.name}@${item.version} 分发计划`,

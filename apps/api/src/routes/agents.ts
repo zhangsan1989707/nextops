@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { registerAgent, recordAgentMetrics, getServer } from "../services/server.service.js";
 import { createTaskRecord, createAuditLog } from "../db.js";
-import { asyncHandler, clampPercent } from "../utils/helpers.js";
+import { asyncHandler, clampPercent, getActor } from "../utils/helpers.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { agentAuthMiddleware } from "../middleware/agent-auth.js";
 
@@ -102,7 +102,7 @@ router.post("/:id/install-plan", authMiddleware, asyncHandler(async (req, res) =
 
   await createAuditLog({
     action: "agent.install_plan",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "server",
     resourceId: server.id,
     summary: `生成 ${server.hostname} Agent 安装计划`,

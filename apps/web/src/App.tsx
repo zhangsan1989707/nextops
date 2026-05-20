@@ -48,6 +48,20 @@ import ModelsPage from "./components/Models";
 import { StatusDot } from "./components/HealthRing";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette";
 import { useToast } from "./components/Toast";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import {
+  fetchServers,
+  fetchServer,
+  fetchAlerts,
+  fetchScripts,
+  fetchDashboard,
+  login as apiLogin,
+  setToken,
+  clearToken,
+  type ServerRecord,
+  type AlertRecord,
+  type DashboardData,
+} from "./api/client";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -747,6 +761,21 @@ export function App() {
     if (!authUser) return;
     void loadPageData(activePage);
   }, [activePage, authUser]);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const interval = setInterval(() => {
+      if (activePage === "dashboard" || activePage === "servers" || activePage === "alerts") {
+        loadServers().catch(() => {});
+        if (activePage === "alerts") {
+          fetchJson<{ items: AlertItem[] }>("/api/alerts")
+            .then((data) => setAlerts(data.items))
+            .catch(() => {});
+        }
+      }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [authUser, activePage]);
 
   async function runChat(inputValue: string) {
     const input = inputValue.trim();

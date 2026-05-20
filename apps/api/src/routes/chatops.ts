@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getServers, getAlerts, getScripts, getDefaultAiModelForRuntime, createTaskRecord, createAuditLog } from "../db.js";
 import { buildChatOpsPlan } from "../chatops.js";
-import { asyncHandler, writeStreamEvent, chunkText, wait } from "../utils/helpers.js";
+import { asyncHandler, chunkText, getActor, wait, writeStreamEvent } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -43,7 +43,7 @@ router.post("/message", asyncHandler(async (req, res) => {
 
   await createAuditLog({
     action: "chatops.plan",
-    actor: "ops-admin",
+    actor: getActor(res),
     resourceType: "task",
     resourceId: task.id,
     summary: `ChatOps 生成 ${plan.intent} 计划`,
