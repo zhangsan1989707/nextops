@@ -27,6 +27,7 @@ import {
   Search,
   Server,
   Settings,
+  Shield,
   ShieldCheck,
   Sun,
   Terminal,
@@ -348,6 +349,9 @@ type ChatResponse = {
   taskId?: string;
   status?: string;
   warnings?: string[];
+  requiresApproval?: boolean;
+  targetId?: string | null;
+  targetName?: string | null;
 };
 
 type ChatMessage = {
@@ -930,6 +934,8 @@ export function App() {
             messages={chatMessages}
             response={chatResponse}
             loading={loadingChat}
+            servers={servers}
+            alerts={alerts}
           />
         )}
         {activePage === "alerts" && (
@@ -2815,10 +2821,12 @@ function riskLabel(risk: string) {
 }
 
 const QUICK_COMMANDS = [
-  { label: "巡检", template: "帮我巡检所有资源，并生成风险摘要" },
-  { label: "诊断", template: "帮我诊断当前告警，给出证据链和修复计划" },
-  { label: "部署", template: "部署最新版本到生产环境" },
-  { label: "SSH", template: "SSH 连接到服务器" }
+  { label: "巡检", template: "帮我巡检所有资源，并生成风险摘要", icon: " " },
+  { label: "诊断", template: "帮我诊断当前告警，给出证据链和修复计划", icon: " " },
+  { label: "SSH", template: "SSH 连接到服务器", icon: " " },
+  { label: "日志", template: "分析最近的系统日志，找出异常", icon: " " },
+  { label: "部署", template: "部署最新版本到生产环境", icon: " " },
+  { label: "脚本", template: "执行巡检脚本", icon: "⚙️" }
 ];
 
 function ChatOps({
@@ -2827,7 +2835,9 @@ function ChatOps({
   sendMessage,
   messages,
   response,
-  loading
+  loading,
+  servers,
+  alerts
 }: {
   message: string;
   setMessage: (value: string) => void;
@@ -2835,6 +2845,8 @@ function ChatOps({
   messages: ChatMessage[];
   response: ChatResponse | null;
   loading: boolean;
+  servers: ServerItem[];
+  alerts: AlertItem[];
 }) {
   const [recentTasks, setRecentTasks] = useState<TimelineTask[]>([]);
 
@@ -2844,14 +2856,37 @@ function ChatOps({
       .catch(() => {});
   }, [response?.taskId]);
 
+  const onlineServers = servers.filter(s => s.agentStatus === "online").length;
+  const openAlerts = alerts.filter(a => a.status !== "resolved").length;
+  const criticalAlerts = alerts.filter(a => a.severity === "critical" && a.status !== "resolved").length;
+  const hasMessages = messages.length > 1;
+
   return (
     <section className="chat-layout">
       <div className="chat-panel">
-        <div className="chat-hero">
-          <div className="brand-mark">N</div>
-          <div>
-            <h2>NextOps Copilot</h2>
-            <p>像和 AI 助手对话一样描述运维目标，系统会关联资产、告警和脚本上下文，生成可确认的计划。</p>
+        {/* AI 上下文面板 — 替代原 chat-hero */}
+        <div className="ai-context-panel">
+          <div className="ai-context-header">
+            <div className="ai-context-status">
+              <span className={`ai-dot ${loading ? "thinking" : "ready"}`} />
+              <strong>{loading ? "AI 分析中..." : "AI Copilot 就绪"}</strong>
+            </div>
+          </div>
+          <div className="ai-context-grid">
+            <div className="ctx-item">
+              <Server size={14} />
+              <span>{servers.length} 台资产</span>
+              <span className="ctx-sub">{onlineServers} 在线</span>
+            </div>
+            <div className="ctx-item">
+              <Bell size={14} />
+              <span>{openAlerts} 告警</span>
+              {criticalAlerts > 0 && <span className="ctx-alert">{criticalAlerts} 高危</span>}
+            </div>
+            <div className="ctx-item">
+              <Shield size={14} />
+              <span>可执行: 巡检 / 诊断 / SSH / 脚本</span>
+            </div>
           </div>
         </div>
 
@@ -2862,20 +2897,49 @@ function ChatOps({
                 {item.role === "assistant" ? <Bot size={18} /> : <MessageSquareText size={18} />}
               </div>
               <div className="chat-bubble">
-                {item.response && (
-                  <div className="result-meta">
-                    {item.response.intent && <span>意图：{item.response.intent}</span>}
-                    {item.response.riskLevel && (
-                      <span className={`risk-badge ${item.response.riskLevel}`}>
-                        {riskLabel(item.response.riskLevel)}
-                      </span>
-                    )}
-                    {item.response.mode && <span>模式：{item.response.mode}</span>}
-                    {item.response.taskId && <span>任务：{item.response.taskId}</span>}
+                {/* AI 工作流阶段指示器 */}
+                {item.role === "assistant" && item.response && item.response.intent && (
+                  <div className="ai-workflow-stages">
+                    <div className="workflow-stage done">
+                      <CheckCircle2 size={13} />
+                      <span>需求理解</span>
+                    </div>
+                    <div className="workflow-stage done">
+                      <CheckCircle2 size={13} />
+                      <span>资产关联</span>
+                    </div>
+                    <div className="workflow-stage done">
+                      <CheckCircle2 size={13} />
+                      <span>计划生成</span>
+                    </div>
+                    <div className={`workflow-stage ${item.response.riskLevel ? "done" : "active"}`}>
+                      {item.response.riskLevel ? <CheckCircle2 size={13} /> : <span className="stage-dot" />}
+                      <span>风险评估</span>
+                      {item.response.riskLevel && (
+                        <span className={`risk-badge ${item.response.riskLevel}`}>
+                          {riskLabel(item.response.riskLevel)}
+                        </span>
+                      )}
+                    </div>
+                    <div className={`workflow-stage ${item.response.taskId ? "done" : "active"}`}>
+                      {item.response.taskId ? <CheckCircle2 size={13} /> : <span className="stage-dot pulse" />}
+                      <span>{item.response.requiresApproval ? "等待确认" : "等待执行"}</span>
+                    </div>
                   </div>
                 )}
+
+                {/* 元数据行 */}
+                {item.response && (
+                  <div className="result-meta">
+                    {item.response.intent && <span className="meta-tag intent">{intentLabel(item.response.intent)}</span>}
+                    {item.response.targetName && <span className="meta-tag target">{item.response.targetName}</span>}
+                    {item.response.mode === "model" && <span className="meta-tag ai">AI 生成</span>}
+                    {item.response.mode === "rule_fallback" && <span className="meta-tag rule">规则引擎</span>}
+                    {item.response.taskId && <span className="meta-tag task">任务 {item.response.taskId.slice(-6)}</span>}
+                  </div>
+                )}
+
                 <p>{item.content || (item.streaming ? <span className="chat-loading-dots"><span /><span /><span /></span> : "")}</p>
-                {item.streaming && <span className="typing-cursor" />}
 
                 {item.role === "assistant" && item.response?.plan && item.response.plan.length > 0 && (
                   <div className="chat-plan-cards">
@@ -2883,7 +2947,6 @@ function ChatOps({
                       <div className="chat-plan-card" key={idx}>
                         <span className="plan-step-number">{idx + 1}</span>
                         <span className="plan-step-text">{step}</span>
-                        <CheckCircle2 size={14} className="plan-step-icon done" />
                       </div>
                     ))}
                   </div>
@@ -2895,10 +2958,7 @@ function ChatOps({
                       <div className="mini-metric-bar" key={m.label}>
                         <span className="mini-metric-label">{m.label}</span>
                         <span className="mini-metric-track">
-                          <i
-                            style={{ width: `${m.value}%` }}
-                            className={m.value > 85 ? "critical" : m.value > 70 ? "warning" : "healthy"}
-                          />
+                          <i style={{ width: `${m.value}%` }} className={m.value > 85 ? "critical" : m.value > 70 ? "warning" : "healthy"} />
                         </span>
                         <b className="mini-metric-value">{m.value}%</b>
                       </div>
@@ -2916,18 +2976,27 @@ function ChatOps({
               </div>
             </article>
           ))}
+
+          {loading && (
+            <article className="chat-message assistant">
+              <div className="chat-avatar"><Bot size={18} /></div>
+              <div className="chat-bubble">
+                <div className="ai-thinking">
+                  <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
+                  <span>AI 正在分析上下文并生成计划...</span>
+                </div>
+              </div>
+            </article>
+          )}
         </div>
 
-        {!message.trim() && messages.length <= 1 && (
+        {/* 快捷指令 / 输入框 */}
+        {!hasMessages && (
           <div className="quick-commands">
             {QUICK_COMMANDS.map((cmd) => (
-              <button
-                className="quick-command-chip"
-                key={cmd.label}
-                onClick={() => setMessage(cmd.template)}
-                type="button"
-              >
-                {cmd.label}
+              <button className="quick-command-chip" key={cmd.label} onClick={() => setMessage(cmd.template)} type="button">
+                {cmd.icon}
+                <span>{cmd.label}</span>
               </button>
             ))}
           </div>
@@ -2937,37 +3006,97 @@ function ChatOps({
           <div className="composer-box">
             <textarea
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="输入运维需求，例如：帮我诊断 alt-001，给出证据链和修复计划"
+              placeholder="输入运维需求或使用 / 指令，例如：/check production"
               rows={2}
               value={message}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
             />
             <div className="composer-footer">
-              <span>{response?.taskId ? `最近任务 ${response.taskId}` : "支持自然语言和 Slash 指令"}</span>
-              <button disabled={loading || !message.trim()} type="submit">{loading ? "生成中" : "发送"}</button>
+              <div className="slash-commands">
+                <button type="button" className="slash-btn" onClick={() => setMessage("/check ")}>/check</button>
+                <button type="button" className="slash-btn" onClick={() => setMessage("/ssh ")}>/ssh</button>
+                <button type="button" className="slash-btn" onClick={() => setMessage("/log ")}>/log</button>
+                <button type="button" className="slash-btn" onClick={() => setMessage("/diagnose ")}>/diagnose</button>
+              </div>
+              <button className="send-btn" disabled={loading || !message.trim()} type="submit">
+                {loading ? "分析中" : "发送"}
+              </button>
             </div>
           </div>
         </form>
       </div>
 
+      {/* 右侧面板 — 任务记录 */}
       <aside className="task-timeline">
-        <h3>最近任务</h3>
-        {recentTasks.length === 0 && <p className="timeline-empty">暂无任务记录</p>}
+        <div className="timeline-panel-header">
+          <h3>任务记录</h3>
+          <span className="task-count">{recentTasks.length}</span>
+        </div>
+        {recentTasks.length === 0 && <p className="timeline-empty">暂无任务记录，尝试发送一条运维指令</p>}
         {recentTasks.map((task) => (
-          <div className="timeline-item" key={task.id}>
-            <div className={`timeline-dot ${task.riskLevel === "high" ? "critical" : task.riskLevel === "medium" ? "warning" : "healthy"}`} />
-            <div className="timeline-content">
-              <div className="timeline-header">
-                <span className="timeline-type">{task.taskType}</span>
-                <span className={`risk-badge ${task.riskLevel}`}>{task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}</span>
-              </div>
-              <p className="timeline-summary">{task.summary}</p>
-              <span className="timeline-time">{formatRelativeTime(task.createdAt)}</span>
+          <div className={`task-card ${task.status}`} key={task.id}>
+            <div className="task-card-header">
+              <span className={`task-stage-dot ${taskStageClass(task.status)}`} />
+              <span className="task-type-label">{intentLabel(task.taskType)}</span>
+              <span className={`risk-badge ${task.riskLevel}`}>{task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}</span>
+            </div>
+            <p className="task-card-summary">{task.summary}</p>
+            <div className="task-card-footer">
+              <span className="task-time">{formatRelativeTime(task.createdAt)}</span>
+              <span className={`task-status-label ${task.status}`}>{taskStatusLabel(task.status)}</span>
+            </div>
+            {/* 阶段指示条 */}
+            <div className="task-stage-bar">
+              <div className={`stage-segment ${taskStageProgress(task.status, 0)}`} title="理解" />
+              <div className={`stage-segment ${taskStageProgress(task.status, 1)}`} title="计划" />
+              <div className={`stage-segment ${taskStageProgress(task.status, 2)}`} title="确认" />
+              <div className={`stage-segment ${taskStageProgress(task.status, 3)}`} title="执行" />
             </div>
           </div>
         ))}
       </aside>
     </section>
   );
+}
+
+function intentLabel(intent: string): string {
+  switch (intent) {
+    case "health_check": return "巡检";
+    case "ai_diagnose": return "诊断";
+    case "open_web_ssh": return "SSH";
+    case "deployment_plan": return "部署";
+    case "script_run": return "脚本";
+    default: return intent;
+  }
+}
+
+function taskStageClass(status: string): string {
+  switch (status) {
+    case "planned": return "pending";
+    case "waiting": return "active";
+    case "running": return "active";
+    case "done": return "done";
+    case "failed": return "failed";
+    default: return "pending";
+  }
+}
+
+function taskStatusLabel(status: string): string {
+  switch (status) {
+    case "planned": return "已规划";
+    case "waiting": return "等待中";
+    case "running": return "执行中";
+    case "done": return "已完成";
+    case "failed": return "已失败";
+    default: return status;
+  }
+}
+
+function taskStageProgress(status: string, stage: number): string {
+  const order: Record<string, number> = { planned: 0, waiting: 1, running: 2, done: 4, failed: 2 };
+  const current = order[status] ?? 0;
+  if (status === "failed" && stage >= 2) return "failed";
+  return stage < current ? "done" : stage === current ? "active" : "pending";
 }
 
 function formatRelativeTime(dateStr: string): string {
