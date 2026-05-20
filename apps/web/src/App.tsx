@@ -1,6 +1,7 @@
 import {
   Activity,
   ArrowLeft,
+  ArrowUp,
   Bell,
   Bot,
   Boxes,
@@ -22,24 +23,31 @@ import {
   Minus,
   Moon,
   Package,
+  PanelRight,
   PlayCircle,
+  Radar,
   RefreshCw,
+  Rocket,
   Search,
   Server,
   Settings,
   Shield,
   ShieldCheck,
+  Stethoscope,
   Sun,
   Terminal,
   TrendingDown,
   TrendingUp,
   Users,
   Zap,
+  X,
   XCircle
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ModelsPage from "./components/Models";
 import { StatusDot } from "./components/HealthRing";
+import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette";
+import { useToast } from "./components/Toast";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -408,7 +416,7 @@ const menuGroups = [
     title: "核心业务",
     items: [
       { key: "dashboard", label: "仪表盘", icon: LayoutDashboard },
-      { key: "chatops", label: "ChatOps", icon: MessageSquareText },
+      { key: "chatops", label: "AI Copilot", icon: MessageSquareText },
       { key: "alerts", label: "告警中心", icon: Bell }
     ]
   },
@@ -536,14 +544,37 @@ export function App() {
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(menuGroups.map((g) => [g.title, true]))
+    Object.fromEntries(menuGroups.map((g) => [g.title, g.title === "核心业务" || g.title === "资产与脚本"]))
   );
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("nextops-theme") ?? "light");
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("nextops-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const paletteCommands = useMemo(() =>
+    buildDefaultCommands(
+      (page) => setActivePage(page),
+      (id) => { setSelectedServerId(id); setActivePage("server-detail"); },
+      servers
+    ),
+    [servers]
+  );
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -889,26 +920,33 @@ export function App() {
 
       <main className="main">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">当复杂操作变成一句话</p>
-            <h1>{activeLabel}</h1>
-          </div>
+          <h1>{activeLabel}</h1>
           <div className="top-actions">
-            <div className="search">
-              <Search size={16} />
-              <input placeholder="搜索服务器、告警、脚本或指令" />
+            <div className="search" onClick={() => setCommandPaletteOpen(true)} style={{ cursor: "pointer" }}>
+              <Search size={14} />
+              <input placeholder="搜索资产、告警、脚本或输入命令..." readOnly />
+              <kbd className="search-kbd">⌘K</kbd>
             </div>
-            <div className="user-area">
-              <span className="user-name">{authUser.name}</span>
-              <span className="user-role">({authUser.role})</span>
+            <div className="user-menu">
               <button
-                className="logout-button"
-                onClick={handleLogout}
+                className="user-trigger"
+                onClick={() => setShowUserMenu((v) => !v)}
                 type="button"
-                title="退出登录"
               >
-                退出
+                <span className="user-avatar">{authUser.name.charAt(0)}</span>
+                <span className="user-name">{authUser.name}</span>
+                <ChevronDown size={14} />
               </button>
+              {showUserMenu && (
+                <div className="user-dropdown">
+                  <div className="user-dropdown-info">
+                    <span className="user-dropdown-name">{authUser.name}</span>
+                    <span className="user-dropdown-role">{authUser.role}</span>
+                  </div>
+                  <div className="user-dropdown-sep" />
+                  <button onClick={handleLogout} type="button">退出登录</button>
+                </div>
+              )}
             </div>
             <button
               className="dark-toggle"
@@ -916,7 +954,7 @@ export function App() {
               type="button"
               title={theme === "dark" ? "切换亮色模式" : "切换暗色模式"}
             >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </button>
           </div>
         </header>
@@ -995,6 +1033,25 @@ export function App() {
           activePage !== "server-detail" && <Placeholder title={activeLabel} />}
         </div>
       </main>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        commands={paletteCommands}
+      />
+    </div>
+  );
+}
+
+function MiniProgress({ value }: { value: number }) {
+  const pct = Math.min(100, Math.max(0, value));
+  const level = pct >= 80 ? "danger" : pct >= 60 ? "warning" : "ok";
+  return (
+    <div className="mini-progress">
+      <div className="mini-progress-track">
+        <div className={`mini-progress-bar ${level}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="mini-progress-value">{pct}%</span>
     </div>
   );
 }
@@ -1059,12 +1116,20 @@ function Alerts({
   const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(alerts[0] ?? null);
   const [diagnosis, setDiagnosis] = useState<AlertDiagnosisReport | null>(null);
   const [loadingDiagnosis, setLoadingDiagnosis] = useState(false);
+  const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   useEffect(() => {
     if (!selectedAlert && alerts.length > 0) {
       setSelectedAlert(alerts[0]);
     }
   }, [alerts, selectedAlert]);
+
+  const filtered = alerts.filter((alert) => {
+    if (filterSeverity !== "all" && alert.severity !== filterSeverity) return false;
+    if (filterStatus !== "all" && alert.status !== filterStatus) return false;
+    return true;
+  });
 
   const criticalCount = alerts.filter((alert) => alert.severity === "critical").length;
   const openCount = alerts.filter((alert) => alert.status === "open").length;
@@ -1117,8 +1182,32 @@ function Alerts({
               <h2>告警列表</h2>
             </div>
           </div>
+          <div className="filter-bar">
+            <button className={`filter-btn ${filterSeverity === "all" ? "active" : ""}`} onClick={() => setFilterSeverity("all")} type="button">
+              全部 <span className="count">{alerts.length}</span>
+            </button>
+            <button className={`filter-btn ${filterSeverity === "critical" ? "active" : ""}`} onClick={() => setFilterSeverity("critical")} type="button">
+              严重 <span className="count">{criticalCount}</span>
+            </button>
+            <button className={`filter-btn ${filterSeverity === "warning" ? "active" : ""}`} onClick={() => setFilterSeverity("warning")} type="button">
+              警告
+            </button>
+            <button className={`filter-btn ${filterSeverity === "info" ? "active" : ""}`} onClick={() => setFilterSeverity("info")} type="button">
+              信息
+            </button>
+            <span style={{ width: 8 }} />
+            <button className={`filter-btn ${filterStatus === "all" ? "active" : ""}`} onClick={() => setFilterStatus("all")} type="button">
+              全部状态
+            </button>
+            <button className={`filter-btn ${filterStatus === "open" ? "active" : ""}`} onClick={() => setFilterStatus("open")} type="button">
+              待处理 <span className="count">{openCount}</span>
+            </button>
+            <button className={`filter-btn ${filterStatus === "acknowledged" ? "active" : ""}`} onClick={() => setFilterStatus("acknowledged")} type="button">
+              处理中 <span className="count">{acknowledgedCount}</span>
+            </button>
+          </div>
           <div className="alert-list">
-            {alerts.map((alert) => (
+            {filtered.map((alert) => (
               <button
                 className={selectedAlert?.id === alert.id ? "alert-item active" : "alert-item"}
                 key={alert.id}
@@ -1127,13 +1216,18 @@ function Alerts({
                   setDiagnosis(null);
                 }}
                 type="button"
+                style={{ position: "relative", overflow: "hidden" }}
               >
+                <div className={`alert-color-bar ${alert.severity}`} />
                 <span className={`severity ${alert.severity}`}>{severityLabel(alert.severity)}</span>
                 <strong>{alert.title}</strong>
                 <small>{serverName(alert.serverId)} · {sourceLabel(alert.source)}</small>
                 <em>{alertStatusLabel(alert.status)}</em>
               </button>
             ))}
+            {filtered.length === 0 && alerts.length > 0 && (
+              <div className="table-empty">没有匹配当前筛选条件的告警</div>
+            )}
           </div>
         </article>
 
@@ -1430,7 +1524,7 @@ function Commands({ commands }: { commands: SlashCommandItem[] }) {
         </article>
         <article className="metric-card">
           <div className="metric-icon green"><MessageSquareText size={20} /></div>
-          <span>ChatOps 可用</span>
+          <span>AI Copilot 可用</span>
           <strong>{commands.length}</strong>
         </article>
         <article className="metric-card">
@@ -1495,7 +1589,7 @@ function Commands({ commands }: { commands: SlashCommandItem[] }) {
         <article className="panel wide-card">
           <div className="panel-header">
             <div>
-              <p className="eyebrow">ChatOps</p>
+              <p className="eyebrow">AI Copilot</p>
               <h2>执行计划</h2>
             </div>
             <span className={`risk-badge ${response.riskLevel}`}>{riskLabel(response.riskLevel)}</span>
@@ -2821,12 +2915,12 @@ function riskLabel(risk: string) {
 }
 
 const QUICK_COMMANDS = [
-  { label: "巡检", template: "帮我巡检所有资源，并生成风险摘要", icon: " " },
-  { label: "诊断", template: "帮我诊断当前告警，给出证据链和修复计划", icon: " " },
-  { label: "SSH", template: "SSH 连接到服务器", icon: " " },
-  { label: "日志", template: "分析最近的系统日志，找出异常", icon: " " },
-  { label: "部署", template: "部署最新版本到生产环境", icon: " " },
-  { label: "脚本", template: "执行巡检脚本", icon: "⚙️" }
+  { label: "巡检", template: "帮我巡检所有资源，并生成风险摘要", Icon: Radar },
+  { label: "诊断", template: "帮我诊断当前告警，给出证据链和修复计划", Icon: Stethoscope },
+  { label: "SSH", template: "SSH 连接到服务器", Icon: Terminal },
+  { label: "日志", template: "分析最近的系统日志，找出异常", Icon: FileText },
+  { label: "部署", template: "部署最新版本到生产环境", Icon: Rocket },
+  { label: "脚本", template: "执行巡检脚本", Icon: Code2 }
 ];
 
 function ChatOps({
@@ -2849,6 +2943,7 @@ function ChatOps({
   alerts: AlertItem[];
 }) {
   const [recentTasks, setRecentTasks] = useState<TimelineTask[]>([]);
+  const toast = useToast();
 
   useEffect(() => {
     fetchJson<{ items: TimelineTask[] }>("/api/tasks")
@@ -2858,202 +2953,174 @@ function ChatOps({
 
   const onlineServers = servers.filter(s => s.agentStatus === "online").length;
   const openAlerts = alerts.filter(a => a.status !== "resolved").length;
-  const criticalAlerts = alerts.filter(a => a.severity === "critical" && a.status !== "resolved").length;
-  const hasMessages = messages.length > 1;
+  const activeTasks = recentTasks.filter(t => t.status === "planned" || t.status === "waiting" || t.status === "running");
+  const historyTasks = recentTasks.filter(t => t.status === "done" || t.status === "failed");
+  const onlineAssets = servers.filter(s => s.agentStatus === "online");
 
   return (
     <section className="chat-layout">
       <div className="chat-panel">
-        {/* AI 上下文面板 — 替代原 chat-hero */}
-        <div className="ai-context-panel">
-          <div className="ai-context-header">
-            <div className="ai-context-status">
-              <span className={`ai-dot ${loading ? "thinking" : "ready"}`} />
-              <strong>{loading ? "AI 分析中..." : "AI Copilot 就绪"}</strong>
-            </div>
+        {/* 顶部工具栏 — Notion 风格极简 */}
+        <div className="chat-topbar">
+          <span className="chat-topbar-dot" />
+          <span className="chat-topbar-title">AI Copilot</span>
+          <span className="chat-topbar-sep" />
+          <div className="chat-topbar-pill">
+            <Server size={12} />
+            <span>{onlineServers} 台在线</span>
           </div>
-          <div className="ai-context-grid">
-            <div className="ctx-item">
-              <Server size={14} />
-              <span>{servers.length} 台资产</span>
-              <span className="ctx-sub">{onlineServers} 在线</span>
-            </div>
-            <div className="ctx-item">
-              <Bell size={14} />
-              <span>{openAlerts} 告警</span>
-              {criticalAlerts > 0 && <span className="ctx-alert">{criticalAlerts} 高危</span>}
-            </div>
-            <div className="ctx-item">
-              <Shield size={14} />
-              <span>可执行: 巡检 / 诊断 / SSH / 脚本</span>
-            </div>
+          <div className="chat-topbar-pill">
+            <Bell size={12} />
+            <span>{openAlerts} 告警</span>
+          </div>
+          <div className="chat-topbar-right">
+            <button className="chat-icon-btn" type="button" aria-label="搜索"><Search size={16} /></button>
+            <button className="chat-icon-btn active" type="button" aria-label="任务记录"><PanelRight size={16} /></button>
+            <button className="chat-icon-btn" type="button" aria-label="设置"><Settings size={16} /></button>
           </div>
         </div>
 
+        {/* 消息区 */}
         <div className="chat-thread" aria-live="polite">
           {messages.map((item) => (
-            <article className={`chat-message ${item.role}`} key={item.id}>
-              <div className="chat-avatar">
-                {item.role === "assistant" ? <Bot size={18} /> : <MessageSquareText size={18} />}
+            <div className={`msg-row ${item.role}`} key={item.id}>
+              <div className={`msg-avatar ${item.role === "assistant" ? "av-ai" : "av-user"}`}>
+                {item.role === "assistant" ? <Bot size={13} /> : "LH"}
               </div>
-              <div className="chat-bubble">
-                {/* AI 工作流阶段指示器 */}
-                {item.role === "assistant" && item.response && item.response.intent && (
-                  <div className="ai-workflow-stages">
-                    <div className="workflow-stage done">
-                      <CheckCircle2 size={13} />
-                      <span>需求理解</span>
-                    </div>
-                    <div className="workflow-stage done">
-                      <CheckCircle2 size={13} />
-                      <span>资产关联</span>
-                    </div>
-                    <div className="workflow-stage done">
-                      <CheckCircle2 size={13} />
-                      <span>计划生成</span>
-                    </div>
-                    <div className={`workflow-stage ${item.response.riskLevel ? "done" : "active"}`}>
-                      {item.response.riskLevel ? <CheckCircle2 size={13} /> : <span className="stage-dot" />}
-                      <span>风险评估</span>
-                      {item.response.riskLevel && (
-                        <span className={`risk-badge ${item.response.riskLevel}`}>
-                          {riskLabel(item.response.riskLevel)}
-                        </span>
-                      )}
-                    </div>
-                    <div className={`workflow-stage ${item.response.taskId ? "done" : "active"}`}>
-                      {item.response.taskId ? <CheckCircle2 size={13} /> : <span className="stage-dot pulse" />}
-                      <span>{item.response.requiresApproval ? "等待确认" : "等待执行"}</span>
-                    </div>
-                  </div>
-                )}
+              <div>
+                <div className={`msg-bubble ${item.role === "assistant" ? "b-ai" : "b-user"}`}>
+                  <p>{item.content || (item.streaming ? <span className="thinking-dots"><span /><span /><span /></span> : "")}{item.streaming && item.content ? <span className="typing-cursor" /> : null}</p>
 
-                {/* 元数据行 */}
-                {item.response && (
-                  <div className="result-meta">
-                    {item.response.intent && <span className="meta-tag intent">{intentLabel(item.response.intent)}</span>}
-                    {item.response.targetName && <span className="meta-tag target">{item.response.targetName}</span>}
-                    {item.response.mode === "model" && <span className="meta-tag ai">AI 生成</span>}
-                    {item.response.mode === "rule_fallback" && <span className="meta-tag rule">规则引擎</span>}
-                    {item.response.taskId && <span className="meta-tag task">任务 {item.response.taskId.slice(-6)}</span>}
-                  </div>
-                )}
+                  {/* 内联结果卡片 — 巡检/诊断结果 */}
+                  {item.role === "assistant" && item.response?.plan && item.response.plan.length > 0 && (
+                    <div className="result-card">
+                      {item.response.plan.map((step, idx) => (
+                        <div className="result-row" key={idx}>
+                          <span className={`dot-${item.response?.riskLevel === "high" ? "warn" : "ok"}`} />
+                          <span className="result-name">{step}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                <p>{item.content || (item.streaming ? <span className="chat-loading-dots"><span /><span /><span /></span> : "")}</p>
-
-                {item.role === "assistant" && item.response?.plan && item.response.plan.length > 0 && (
-                  <div className="chat-plan-cards">
-                    {item.response.plan.map((step, idx) => (
-                      <div className="chat-plan-card" key={idx}>
-                        <span className="plan-step-number">{idx + 1}</span>
-                        <span className="plan-step-text">{step}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {item.role === "assistant" && parseMetrics(item.content).length > 0 && (
-                  <div className="mini-metrics">
-                    {parseMetrics(item.content).map((m) => (
-                      <div className="mini-metric-bar" key={m.label}>
-                        <span className="mini-metric-label">{m.label}</span>
-                        <span className="mini-metric-track">
-                          <i style={{ width: `${m.value}%` }} className={m.value > 85 ? "critical" : m.value > 70 ? "warning" : "healthy"} />
-                        </span>
-                        <b className="mini-metric-value">{m.value}%</b>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {item.response?.warnings && item.response.warnings.length > 0 && (
-                  <div className="warning-list">
-                    {item.response.warnings.map((warning) => (
-                      <span key={warning}>{warning}</span>
-                    ))}
+                  {item.role === "assistant" && item.response?.warnings && item.response.warnings.length > 0 && (
+                    <div className="result-card">
+                      {item.response.warnings.map((w, i) => (
+                        <div className="result-row" key={i}>
+                          <span className="dot-warn" />
+                          <span className="result-name">{w}</span>
+                          <span className="tag-inline tag-warn" style={{ marginLeft: "auto" }}>注意</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="msg-meta">
+                  {item.role === "assistant" ? "AI Copilot" : "Leo Hang"} · {formatRelativeTime(item.id)}
+                </div>
+                {item.role === "assistant" && item.content && !item.streaming && (
+                  <div className="msg-actions">
+                    <button className="msg-action-btn" onClick={() => { navigator.clipboard.writeText(item.content); toast.success("已复制到剪贴板"); }} type="button">
+                      复制
+                    </button>
                   </div>
                 )}
               </div>
-            </article>
+            </div>
           ))}
 
           {loading && (
-            <article className="chat-message assistant">
-              <div className="chat-avatar"><Bot size={18} /></div>
-              <div className="chat-bubble">
-                <div className="ai-thinking">
-                  <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
-                  <span>AI 正在分析上下文并生成计划...</span>
+            <div className="msg-row assistant">
+              <div className="msg-avatar av-ai"><Bot size={13} /></div>
+              <div>
+                <div className="msg-bubble b-ai">
+                  <div className="ai-thinking-bar">
+                    <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
+                    <span>AI 正在分析上下文并生成计划…</span>
+                  </div>
                 </div>
+                <div className="msg-meta">AI Copilot · 刚刚</div>
               </div>
-            </article>
+            </div>
           )}
         </div>
 
-        {/* 快捷指令 / 输入框 */}
-        {!hasMessages && (
-          <div className="quick-commands">
+        {/* 输入区 */}
+        <div className="chat-inputzone">
+          <div className="chips-row">
             {QUICK_COMMANDS.map((cmd) => (
-              <button className="quick-command-chip" key={cmd.label} onClick={() => setMessage(cmd.template)} type="button">
-                {cmd.icon}
+              <button className="chip" key={cmd.label} onClick={() => setMessage(cmd.template)} type="button">
+                <cmd.Icon size={13} />
                 <span>{cmd.label}</span>
               </button>
             ))}
           </div>
-        )}
-
-        <form className="chat-composer" onSubmit={sendMessage}>
-          <div className="composer-box">
+          <form className="inputbox" onSubmit={sendMessage}>
             <textarea
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="输入运维需求或使用 / 指令，例如：/check production"
+              placeholder="描述需求，或输入 / 触发快捷命令…"
               rows={2}
               value={message}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
             />
-            <div className="composer-footer">
-              <div className="slash-commands">
-                <button type="button" className="slash-btn" onClick={() => setMessage("/check ")}>/check</button>
-                <button type="button" className="slash-btn" onClick={() => setMessage("/ssh ")}>/ssh</button>
-                <button type="button" className="slash-btn" onClick={() => setMessage("/log ")}>/log</button>
-                <button type="button" className="slash-btn" onClick={() => setMessage("/diagnose ")}>/diagnose</button>
-              </div>
-              <button className="send-btn" disabled={loading || !message.trim()} type="submit">
-                {loading ? "分析中" : "发送"}
-              </button>
-            </div>
-          </div>
-        </form>
+            <button className="send-icon-btn" disabled={loading || !message.trim()} type="submit" aria-label="发送">
+              <ArrowUp size={15} />
+            </button>
+          </form>
+        </div>
       </div>
 
-      {/* 右侧面板 — 任务记录 */}
-      <aside className="task-timeline">
-        <div className="timeline-panel-header">
-          <h3>任务记录</h3>
-          <span className="task-count">{recentTasks.length}</span>
+      {/* 右侧抽屉 — 任务记录 + 资产 */}
+      <aside className="chat-drawer">
+        <div className="drawer-header">
+          <span className="drawer-title">任务记录</span>
+          <button className="chat-icon-btn" type="button" aria-label="关闭"><X size={15} /></button>
         </div>
-        {recentTasks.length === 0 && <p className="timeline-empty">暂无任务记录，尝试发送一条运维指令</p>}
-        {recentTasks.map((task) => (
-          <div className={`task-card ${task.status}`} key={task.id}>
-            <div className="task-card-header">
-              <span className={`task-stage-dot ${taskStageClass(task.status)}`} />
-              <span className="task-type-label">{intentLabel(task.taskType)}</span>
-              <span className={`risk-badge ${task.riskLevel}`}>{task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}</span>
+        <div className="drawer-body">
+          {/* 进行中 */}
+          <div className="drawer-section">进行中</div>
+          {activeTasks.length === 0 && <div className="drawer-empty">暂无进行中的任务</div>}
+          {activeTasks.map((task) => (
+            <div className="task-item" key={task.id}>
+              <div className="task-top">
+                <span className="task-name">{task.taskType}</span>
+                <span className={`task-badge ${task.riskLevel === "high" ? "tb-hi" : task.riskLevel === "medium" ? "tb-mid" : "tb-lo"}`}>
+                  {task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}
+                </span>
+              </div>
+              <div className="task-desc">{task.summary}</div>
+              <div className="task-time">{formatRelativeTime(task.createdAt)} · {taskStatusLabel(task.status)}</div>
             </div>
-            <p className="task-card-summary">{task.summary}</p>
-            <div className="task-card-footer">
-              <span className="task-time">{formatRelativeTime(task.createdAt)}</span>
-              <span className={`task-status-label ${task.status}`}>{taskStatusLabel(task.status)}</span>
+          ))}
+
+          {/* 历史 */}
+          <div className="drawer-section" style={{ marginTop: 8 }}>历史</div>
+          {historyTasks.length === 0 && <div className="drawer-empty">暂无历史任务</div>}
+          {historyTasks.slice(0, 5).map((task) => (
+            <div className="task-item" key={task.id}>
+              <div className="task-top">
+                <span className="task-name">{task.taskType}</span>
+                <span className={`task-badge ${task.riskLevel === "high" ? "tb-hi" : task.riskLevel === "medium" ? "tb-mid" : "tb-lo"}`}>
+                  {task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}
+                </span>
+              </div>
+              <div className="task-desc">{task.summary}</div>
+              <div className="task-time">{formatRelativeTime(task.createdAt)} · {taskStatusLabel(task.status)}</div>
             </div>
-            {/* 阶段指示条 */}
-            <div className="task-stage-bar">
-              <div className={`stage-segment ${taskStageProgress(task.status, 0)}`} title="理解" />
-              <div className={`stage-segment ${taskStageProgress(task.status, 1)}`} title="计划" />
-              <div className={`stage-segment ${taskStageProgress(task.status, 2)}`} title="确认" />
-              <div className={`stage-segment ${taskStageProgress(task.status, 3)}`} title="执行" />
+          ))}
+
+          {/* 在线资产 */}
+          <div className="drawer-section" style={{ marginTop: 8 }}>在线资产</div>
+          {onlineAssets.map((s) => (
+            <div className="asset-row" key={s.id}>
+              <span className="dot-ok" />
+              <div>
+                <div className="asset-name">{s.hostname}</div>
+                <div className="asset-ip">{s.ip}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </aside>
     </section>
   );
@@ -3286,9 +3353,9 @@ function Servers({
             <span className="agent-status">
               <StatusDot status={server.agentStatus === "online" ? "online" : server.agentStatus === "not_installed" ? "offline" : "offline"} label={server.agentStatus === "online" ? "在线" : server.agentStatus === "not_installed" ? "未安装" : "离线"} />
             </span>
-            <span>{server.cpuUsage}%</span>
-            <span>{server.memoryUsage}%</span>
-            <span>{server.diskUsage}%</span>
+            <span><MiniProgress value={server.cpuUsage} /></span>
+            <span><MiniProgress value={server.memoryUsage} /></span>
+            <span><MiniProgress value={server.diskUsage} /></span>
             <span className="row-actions">
               <button onClick={() => startEdit(server)} title="编辑" type="button"><Settings size={16} /></button>
               <button title="Web SSH" type="button"><Terminal size={16} /></button>
