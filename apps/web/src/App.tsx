@@ -38,8 +38,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ModelsPage from "./components/Models";
-import { HealthRing, StatusDot } from "./components/HealthRing";
-import { Sparkline, TrendArrow } from "./components/Sparkline";
+import { StatusDot } from "./components/HealthRing";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -2441,7 +2440,7 @@ function Dashboard({
 
   // AI 状态分析 - 模拟真实 AI 判断逻辑
   const aiStatus = useMemo(() => {
-    const onlineServers = servers.filter(s => s.status === 'online').length;
+    const onlineServers = servers.filter(s => s.agentStatus === 'online').length;
     const totalServers = servers.length;
     const criticalAlerts = summary?.alerts.critical ?? 0;
     const openAlerts = summary?.alerts.open ?? 0;
@@ -2582,13 +2581,6 @@ function Dashboard({
     agentOnline: summary?.servers.online ?? 0,
   }), [aiStatus, servers, summary]);
 
-  const cards = [
-    { label: "资源总数", value: summary?.servers.total ?? "--", icon: Server, tone: "blue" },
-    { label: "在线 Agent", value: summary?.servers.online ?? "--", icon: Activity, tone: "green" },
-    { label: "开放告警", value: summary?.alerts.open ?? "--", icon: Bell, tone: aiStatus.status === 'critical' ? 'red' : 'amber' },
-    { label: "今日 AI 诊断", value: summary?.automation.aiDiagnosesToday ?? "--", icon: Bot, tone: "pink" }
-  ];
-
   return (
     <>
       {/* AI Copilot 抽屉 */}
@@ -2668,12 +2660,59 @@ function Dashboard({
           </div>
         </section>
 
+        {/* 性能趋势 */}
+        <section className="panel wide">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">实时态势</p>
+              <h2>性能趋势</h2>
+            </div>
+            <div className="trend-header">
+              {summary?.trends.length ? (
+                <>
+                  <span className="trend-current cpu">CPU {summary.trends[summary.trends.length - 1].cpu}%</span>
+                  <span className="trend-current mem">内存 {summary.trends[summary.trends.length - 1].memory}%</span>
+                </>
+              ) : null}
+              <button className="text-button" type="button">
+                查看监控 <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+          {summary?.trends.length ? (
+            <>
+              <LineChart data={summary.trends} />
+              <div className="chart-legend">
+                <span className="legend-item"><span className="legend-cpu" />CPU</span>
+                <span className="legend-item"><span className="legend-mem" />内存</span>
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>暂无趋势数据</div>
+          )}
+        </section>
+
+        {/* 资源健康度 */}
+        <section className="panel wide">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">资产</p>
+              <h2>资源健康度</h2>
+            </div>
+          </div>
+          <div className="server-stack">
+            {servers.map((server) => (
+              <ServerHealth key={server.id} server={server} />
+            ))}
+          </div>
+        </section>
+
         {/* 系统事件时间线 */}
-        <section className="panel wide event-timeline">
+        <section className={`panel event-timeline ${aiStatus.criticalAlerts > 0 ? 'status-crit' : aiStatus.openAlerts > 0 ? 'status-warn' : ''}`}>
           <div className="panel-header">
             <div>
               <p className="eyebrow">事件流</p>
-              <h2>系统事件时间线</h2>
+              <h2>系统事件</h2>
             </div>
             <span className="timeline-live">
               <span className="live-dot" /> 实时
@@ -2705,8 +2744,8 @@ function Dashboard({
           </div>
           <div className="action-cards">
             {recommendedActions.map((action, i) => (
-              <button 
-                key={i} 
+              <button
+                key={i}
                 className={`action-card ${action.priority}`}
                 onClick={() => onQuickAction(action.action)}
               >
@@ -2732,8 +2771,8 @@ function Dashboard({
                 <h4>{category.title}</h4>
                 <div className="ops-items">
                   {category.items.map((item, j) => (
-                    <button 
-                      key={j} 
+                    <button
+                      key={j}
                       className="ops-item-btn"
                       onClick={() => onQuickAction(item.action)}
                     >
@@ -2743,68 +2782,6 @@ function Dashboard({
                   ))}
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 指标卡片 */}
-        <section className="metric-grid">
-          {cards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <article className="metric-card" key={card.label}>
-                <div className={`metric-icon ${card.tone}`}>
-                  <Icon size={20} />
-                </div>
-                <span>{card.label}</span>
-                <strong>{card.value}</strong>
-              </article>
-            );
-          })}
-        </section>
-
-        {/* 性能趋势（精简） */}
-        <section className="panel wide">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">实时态势</p>
-              <h2>性能趋势</h2>
-            </div>
-            <button className="text-button" type="button">
-              查看监控 <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="trend-grid">
-            {(summary?.trends ?? []).map((item, idx) => (
-              <div className="trend-item" key={item.label}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{item.label}</span>
-                  <Sparkline
-                    data={summary?.trends.map((t) => (t.cpu + t.memory) / 2) ?? []}
-                    color={item.cpu > 75 ? "falling" : "stable"}
-                    height={24}
-                  />
-                </div>
-                <div className="bar">
-                  <i style={{ height: `${item.cpu}%` }} />
-                  <i style={{ height: `${item.memory}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 服务器健康度 */}
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">资产</p>
-              <h2>资源健康度</h2>
-            </div>
-          </div>
-          <div className="server-stack">
-            {servers.map((server) => (
-              <ServerHealth key={server.id} server={server} />
             ))}
           </div>
         </section>
@@ -3797,23 +3774,17 @@ function ListBlock({ title, items }: { title: string; items: string[] }) {
 }
 
 function ServerHealth({ server }: { server: ServerItem }) {
+  const maxUsage = Math.max(server.cpuUsage, server.memoryUsage, server.diskUsage);
+  const severity = maxUsage >= 90 ? "critical" : maxUsage >= 75 ? "warning" : "healthy";
   return (
-    <article className="server-health">
+    <article className={`server-health ${severity}`}>
       <div className="server-health-header">
-        <div className="server-health-ring">
-          <HealthRing
-            percentage={Math.round((server.cpuUsage + server.memoryUsage + server.diskUsage) / 3)}
-            size={44}
-            strokeWidth={5}
-            showValue={false}
-          />
-        </div>
-        <div>
+        <div className="server-health-info">
           <strong>{server.hostname}</strong>
-          <span>{server.ip}</span>
-          <span className="server-role-tag">{server.environment === "production" ? "生产" : server.environment === "staging" ? "预发" : "开发"}</span>
+          <span className="server-health-ip">{server.ip}</span>
+          <span className={`server-env-tag ${server.environment}`}>{server.environment === "production" ? "生产" : server.environment === "staging" ? "预发" : "开发"}</span>
         </div>
-        <StatusDot status={server.status === "healthy" || server.status === "online" ? "online" : server.status === "warning" ? "warning" : "critical"} label="" />
+        <StatusDot status={server.agentStatus === "online" ? "online" : "offline"} label={server.agentStatus === "online" ? "在线" : "离线"} />
       </div>
       <div className="health-bars">
         <ProgressBar label="CPU" value={server.cpuUsage} />

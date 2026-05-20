@@ -13,7 +13,7 @@ router.get(
       getScripts(),
       getSlashCommands(),
       getTaskRecords(200),
-      getRecentMetricTrends()
+      getRecentMetricTrends(24)
     ]);
     const onlineServers = servers.filter((server) => server.agentStatus === "online").length;
     const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").length;
