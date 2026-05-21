@@ -301,29 +301,99 @@ export type ChatOpsResponse = {
   requiresApproval: boolean;
   warnings: string[];
   mode: string;
+  missingParams: string[];
 };
 
 export type DashboardData = {
-  aiStatus: {
-    enabledModels: number;
-    activeDiagnoses: number;
-    recentDecisions: number;
-    pendingApprovals: number;
+  servers: {
+    total: number;
+    online: number;
+    warning: number;
+    offline: number;
+    highRisk: number;
+    highRiskList: Array<{ id: string; hostname: string; cpuUsage: number; memoryUsage: number; diskUsage: number; status: string }>;
   };
-  opsSummary: {
-    totalServers: number;
-    healthyServers: number;
-    warningServers: number;
-    totalAlerts: number;
-    openAlerts: number;
+  alerts: {
+    total: number;
+    critical: number;
+    open: number;
     resolvedToday: number;
+    alertConvergenceRate: number;
+    alertTimeline: Array<{ time: string; severity: string; title: string }>;
   };
-  trends: Array<{
-    label: string;
-    cpu: number;
-    memory: number;
-    alerts: number;
-  }>;
+  resources: {
+    avgCpu: number;
+    avgMemory: number;
+    avgDisk: number;
+    loadAvg: number;
+  };
+  automation: {
+    slashCommands: number;
+    scripts: number;
+    aiDiagnosesToday: number;
+    scriptsExecuted: number;
+  };
+  ai: {
+    aiDiagnosesToday: number;
+    aiAdoptionRate: number;
+    estimatedTimeSaved: number;
+  };
+  opsSla: {
+    alertsTotal: number;
+    alertsOpen: number;
+    alertsResolvedToday: number;
+    alertConvergenceRate: number;
+    pendingApprovals: number;
+    avgResponseTimeMinutes: number;
+  };
+  metrics: {
+    avgResponseTimeMinutes: number;
+    mttrEstimateMinutes: number;
+    healthScore: number;
+  };
+  trends: Array<{ label: string; cpu: number; memory: number; alerts: number }>;
+};
+
+export type DiagnosisReport = {
+  summary: string;
+  impact: string;
+  timeline: Array<{ time: string; event: string }>;
+  evidence: Array<{ source: string; content: string; weight: "high" | "medium" | "low" }>;
+  possibleCauses: Array<{ cause: string; confidence: number; evidenceRefs: number[] }>;
+  repairPlan: Array<{ step: number; action: string; risk: "low" | "medium" | "high"; rollback: string; estimatedTime: string }>;
+  riskWarnings: string[];
+  nextObservations: string[];
+  relatedEvents: Array<{ id: string; title: string; similarity: number }>;
+  model: { id: string | null; name: string; provider: string };
+  mode: string;
+  warnings: string[];
+};
+
+export type AlertStats = {
+  total: number;
+  open: number;
+  acknowledged: number;
+  resolved: number;
+  silenced: number;
+  escalated: number;
+  critical: number;
+  warning: number;
+  info: number;
+};
+
+export type AlertGroup = {
+  fingerprint: string;
+  title: string;
+  count: number;
+  severities: string[];
+  alerts: AlertRecord[];
+  isStorm: boolean;
+};
+
+export type AlertListResponse = {
+  items: AlertRecord[];
+  stats: AlertStats;
+  groups: AlertGroup[];
 };
 
 export type AuthResponse = {
@@ -366,8 +436,32 @@ export async function updateServer(id: string, data: Record<string, unknown>): P
   return apiPut<ServerRecord>(`/servers/${id}`, data);
 }
 
-export async function fetchAlerts(): Promise<{ items: AlertRecord[] }> {
-  return apiCall<{ items: AlertRecord[] }>("/alerts");
+export async function fetchAlerts(): Promise<AlertListResponse> {
+  return apiCall<AlertListResponse>("/alerts");
+}
+
+export async function acknowledgeAlert(id: string): Promise<AlertRecord> {
+  return apiPost<AlertRecord>(`/alerts/${id}/acknowledge`, {});
+}
+
+export async function escalateAlert(id: string): Promise<AlertRecord> {
+  return apiPost<AlertRecord>(`/alerts/${id}/escalate`, {});
+}
+
+export async function silenceAlert(id: string, duration?: number): Promise<AlertRecord> {
+  return apiPost<AlertRecord>(`/alerts/${id}/silence`, { duration: duration ?? 3600 });
+}
+
+export async function resolveAlert(id: string): Promise<AlertRecord> {
+  return apiPost<AlertRecord>(`/alerts/${id}/resolve`, {});
+}
+
+export async function diagnoseAlert(alertId: string): Promise<DiagnosisReport> {
+  return apiPost<DiagnosisReport>(`/diagnosis/alert/${alertId}`, {});
+}
+
+export async function diagnoseServer(serverId: string): Promise<DiagnosisReport> {
+  return apiPost<DiagnosisReport>(`/diagnosis/server/${serverId}`, {});
 }
 
 export async function fetchScripts(): Promise<{ items: ScriptRecord[] }> {

@@ -2,9 +2,24 @@ import type { AiModelRuntimeRecord } from "./db.js";
 
 export type DiagnosisReport = {
   summary: string;
-  evidence: string[];
-  possibleCauses: string[];
-  repairPlan: string[];
+  impact: string;
+  timeline: Array<{ time: string; event: string }>;
+  evidence: Array<{ source: string; content: string; weight: "high" | "medium" | "low" }>;
+  possibleCauses: Array<{
+    cause: string;
+    confidence: number;
+    evidenceRefs: number[];
+  }>;
+  repairPlan: Array<{
+    step: number;
+    action: string;
+    risk: "low" | "medium" | "high";
+    rollback: string;
+    estimatedTime: string;
+  }>;
+  riskWarnings: string[];
+  nextObservations: string[];
+  relatedEvents: Array<{ id: string; title: string; similarity: number }>;
   model: {
     id: string | null;
     name: string;
@@ -14,7 +29,17 @@ export type DiagnosisReport = {
   warnings: string[];
 };
 
-export type DiagnosisFallback = Pick<DiagnosisReport, "summary" | "evidence" | "possibleCauses" | "repairPlan">;
+export type DiagnosisFallback = {
+  summary: string;
+  impact: string;
+  timeline: Array<{ time: string; event: string }>;
+  evidence: Array<{ source: string; content: string; weight: "high" | "medium" | "low" }>;
+  possibleCauses: Array<{ cause: string; confidence: number; evidenceRefs: number[] }>;
+  repairPlan: Array<{ step: number; action: string; risk: "low" | "medium" | "high"; rollback: string; estimatedTime: string }>;
+  riskWarnings: string[];
+  nextObservations: string[];
+  relatedEvents: Array<{ id: string; title: string; similarity: number }>;
+};
 
 type FetchLike = typeof fetch;
 
@@ -89,7 +114,7 @@ export async function generateDiagnosis(options: {
           {
             role: "system",
             content:
-              "你是 NextOps AIOps 诊断助手。只返回 JSON，不要 Markdown。字段必须包含 summary, evidence, possibleCauses, repairPlan，后三个字段必须是字符串数组。"
+              "你是 NextOps AIOps 诊断助手。只返回 JSON，不要 Markdown。字段必须包含: summary, impact, timeline(数组,每项含time和event), evidence(数组,每项含source/content/weight), possibleCauses(数组,每项含cause/confidence/evidenceRefs), repairPlan(数组,每项含step/action/risk/rollback/estimatedTime), riskWarnings(字符串数组), nextObservations(字符串数组)。推断必须来自输入上下文，不允许编造真实执行结果。confidence 取值范围 0-1。"
           },
           {
             role: "user",
@@ -192,8 +217,39 @@ export async function testModelConnectivity(options: {
 
 export function parseDiagnosisContent(content: string): Partial<DiagnosisFallback> {
   const jsonText = extractJsonObject(content);
-  const parsed = JSON.parse(jsonText) as Partial<DiagnosisFallback>;
-  return parsed;
+  const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+  return {
+    summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+    impact: typeof parsed.impact === "string" ? parsed.impact : undefined,
+    timeline: Array.isArray(parsed.timeline) ? parsed.timeline.map((item: Record<string, unknown>) => ({
+      time: typeof item.time === "string" ? item.time : "",
+      event: typeof item.event === "string" ? item.event : ""
+    })) : undefined,
+    evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map((item: Record<string, unknown>) => ({
+      source: typeof item.source === "string" ? item.source : "unknown",
+      content: typeof item.content === "string" ? item.content : String(item.content ?? ""),
+      weight: item.weight === "high" || item.weight === "medium" || item.weight === "low" ? item.weight : "medium"
+    })) : undefined,
+    possibleCauses: Array.isArray(parsed.possibleCauses) ? parsed.possibleCauses.map((item: Record<string, unknown>) => ({
+      cause: typeof item.cause === "string" ? item.cause : "",
+      confidence: typeof item.confidence === "number" ? Math.max(0, Math.min(1, item.confidence)) : 0.5,
+      evidenceRefs: Array.isArray(item.evidenceRefs) ? item.evidenceRefs.map(Number).filter((n) => !isNaN(n)) : []
+    })) : undefined,
+    repairPlan: Array.isArray(parsed.repairPlan) ? parsed.repairPlan.map((item: Record<string, unknown>, index: number) => ({
+      step: typeof item.step === "number" ? item.step : index + 1,
+      action: typeof item.action === "string" ? item.action : String(item.action ?? ""),
+      risk: item.risk === "high" || item.risk === "medium" || item.risk === "low" ? item.risk : "low",
+      rollback: typeof item.rollback === "string" ? item.rollback : "无需回滚",
+      estimatedTime: typeof item.estimatedTime === "string" ? item.estimatedTime : "未知"
+    })) : undefined,
+    riskWarnings: Array.isArray(parsed.riskWarnings) ? parsed.riskWarnings.map(String).filter(Boolean) : undefined,
+    nextObservations: Array.isArray(parsed.nextObservations) ? parsed.nextObservations.map(String).filter(Boolean) : undefined,
+    relatedEvents: Array.isArray(parsed.relatedEvents) ? parsed.relatedEvents.map((item: Record<string, unknown>) => ({
+      id: typeof item.id === "string" ? item.id : "",
+      title: typeof item.title === "string" ? item.title : "",
+      similarity: typeof item.similarity === "number" ? item.similarity : 0
+    })) : undefined
+  };
 }
 
 function extractAssistantContent(payload: ChatCompletionResponse): string {
@@ -233,9 +289,18 @@ function extractJsonObject(content: string): string {
 function normalizeDiagnosis(input: Partial<DiagnosisFallback>, fallback: DiagnosisFallback): DiagnosisFallback {
   return {
     summary: stringOrFallback(input.summary, fallback.summary),
-    evidence: arrayOrFallback(input.evidence, fallback.evidence),
-    possibleCauses: arrayOrFallback(input.possibleCauses, fallback.possibleCauses),
-    repairPlan: arrayOrFallback(input.repairPlan, fallback.repairPlan)
+    impact: stringOrFallback(input.impact, fallback.impact),
+    timeline: Array.isArray(input.timeline) && input.timeline.length > 0 ? input.timeline : fallback.timeline,
+    evidence: Array.isArray(input.evidence) && input.evidence.length > 0 ? input.evidence : fallback.evidence,
+    possibleCauses: Array.isArray(input.possibleCauses) && input.possibleCauses.length > 0 ? input.possibleCauses : fallback.possibleCauses,
+    repairPlan: Array.isArray(input.repairPlan) && input.repairPlan.length > 0 ? input.repairPlan : fallback.repairPlan,
+    riskWarnings: Array.isArray(input.riskWarnings) && input.riskWarnings.length > 0
+      ? input.riskWarnings.filter((w: string) => w.trim())
+      : fallback.riskWarnings,
+    nextObservations: Array.isArray(input.nextObservations) && input.nextObservations.length > 0
+      ? input.nextObservations.filter((o: string) => o.trim())
+      : fallback.nextObservations,
+    relatedEvents: Array.isArray(input.relatedEvents) ? input.relatedEvents : fallback.relatedEvents
   };
 }
 
@@ -255,14 +320,6 @@ function fallbackDiagnosis(fallback: DiagnosisFallback, warning: string, model?:
 function stringOrFallback(value: unknown, fallback: string): string {
   const nextValue = typeof value === "string" ? value.trim() : "";
   return nextValue || fallback;
-}
-
-function arrayOrFallback(value: unknown, fallback: string[]): string[] {
-  if (!Array.isArray(value)) {
-    return fallback;
-  }
-  const nextValue = value.map(String).map((item) => item.trim()).filter(Boolean);
-  return nextValue.length > 0 ? nextValue : fallback;
 }
 
 function isLocalEndpoint(endpoint: string): boolean {

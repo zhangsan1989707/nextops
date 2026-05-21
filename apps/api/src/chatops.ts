@@ -1,7 +1,17 @@
 import { openAiCompatibleChatUrl, resolveModelApiKey } from "./ai.js";
 import type { AiModelRuntimeRecord, AlertRecord, ScriptRecord, ServerRecord } from "./db.js";
 
-export type ChatOpsIntent = "open_web_ssh" | "ai_diagnose" | "deployment_plan" | "health_check" | "script_run";
+export type ChatOpsIntent =
+  | "open_web_ssh"
+  | "ai_diagnose"
+  | "deployment_plan"
+  | "health_check"
+  | "script_run"
+  | "log_query"
+  | "metric_query"
+  | "restart_service"
+  | "rollback";
+
 export type ChatOpsMode = "model" | "rule_fallback";
 
 export type ChatOpsPlan = {
@@ -16,6 +26,7 @@ export type ChatOpsPlan = {
   requiresApproval: boolean;
   warnings: string[];
   mode: ChatOpsMode;
+  missingParams: string[];
 };
 
 export type ChatOpsContext = {
@@ -37,6 +48,11 @@ type ChatCompletionResponse = {
 type ModelPlan = Partial<Omit<ChatOpsPlan, "mode" | "warnings">> & {
   warnings?: string[];
 };
+
+const availableIntents: ChatOpsIntent[] = [
+  "open_web_ssh", "ai_diagnose", "deployment_plan", "health_check",
+  "script_run", "log_query", "metric_query", "restart_service", "rollback"
+];
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS ?? 30000);
 
@@ -77,13 +93,13 @@ export async function buildChatOpsPlan(options: {
           {
             role: "system",
             content:
-              "你是 NextOps ChatOps 编排器。只返回 JSON，字段为 intent,riskLevel,reply,plan,targetId,targetName,resourceId,resourceName,requiresApproval。不要编造不存在的资产，不能执行真实命令，只能生成可审批计划。"
+              "你是 NextOps ChatOps 编排器。只返回 JSON，字段为 intent,riskLevel,reply,plan,targetId,targetName,resourceId,resourceName,requiresApproval,missingParams。不要编造不存在的资产，不能执行真实命令，只能生成可审批计划。missingParams 是字符串数组，列出缺少的必要参数。"
           },
           {
             role: "user",
             content: JSON.stringify({
               message: options.message,
-              availableIntents: ["open_web_ssh", "ai_diagnose", "deployment_plan", "health_check", "script_run"],
+              availableIntents,
               context: summarizeContext(options.context)
             })
           }
@@ -132,7 +148,8 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
       resourceName: "Web SSH",
       requiresApproval: targetServer?.environment === "production",
       warnings: commandMode ? [] : ["自然语言 SSH 请求已按中风险计划处理。"],
-      mode: "rule_fallback"
+      mode: "rule_fallback",
+      missingParams: targetServer ? [] : ["目标服务器"]
     };
   }
 
@@ -162,7 +179,8 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
       resourceName: target?.title ?? "AI 诊断",
       requiresApproval: false,
       warnings: target ? [] : ["未匹配到明确告警，计划需要人工补充目标。"],
-      mode: "rule_fallback"
+      mode: "rule_fallback",
+      missingParams: target ? [] : ["诊断目标"]
     };
   }
 
@@ -186,7 +204,8 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
       resourceName: "部署计划",
       requiresApproval: true,
       warnings: ["部署执行器尚未接入，本次不会真实发布。"],
-      mode: "rule_fallback"
+      mode: "rule_fallback",
+      missingParams: targetServer ? [] : ["目标服务器"]
     };
   }
 
@@ -210,7 +229,174 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
       resourceName: targetScript?.name ?? "脚本执行",
       requiresApproval: targetScript?.riskLevel !== "low" || targetServer?.environment === "production",
       warnings: targetScript ? [] : ["未匹配到具体脚本，计划需要人工选择脚本。"],
-      mode: "rule_fallback"
+      mode: "rule_fallback",
+      missingParams: targetScript ? [] : ["目标脚本"]
+    };
+  }
+
+  // 日志查询
+  if (lowered.includes("日志") || lowered.includes("log") || lowered.includes("error") || lowered.includes("access")
+    || lowered.startsWith("/log")) {
+    if (!targetServer) {
+      return {
+        intent: "log_query",
+        riskLevel: "low",
+        reply: "需要指定目标服务器才能查询日志。例如: \"查看生产环境 prod-web-01 的最近 100 行错误日志\"",
+        plan: ["需要指定目标服务器"],
+        targetId: null,
+        targetName: null,
+        resourceId: "log-query",
+        resourceName: "日志查询",
+        requiresApproval: false,
+        warnings: ["未指定目标服务器"],
+        mode: "rule_fallback",
+        missingParams: ["目标服务器"]
+      };
+    }
+    const logType = lowered.includes("error") || lowered.includes("错误") ? "错误日志" : "系统日志";
+    return {
+      intent: "log_query",
+      riskLevel: "low",
+      reply: `已生成 ${targetServer.hostname} 的${logType}查询计划。`,
+      plan: [
+        `目标: ${targetServer.hostname}`,
+        `日志类型: ${logType}`,
+        "通过 Agent 采集最近日志文件",
+        "返回日志摘要和关键错误行"
+      ],
+      targetId: targetServer.id,
+      targetName: targetServer.hostname,
+      resourceId: "log-query",
+      resourceName: "日志查询",
+      requiresApproval: false,
+      warnings: [],
+      mode: "rule_fallback",
+      missingParams: []
+    };
+  }
+
+  // 指标查询
+  if (lowered.includes("指标") || lowered.includes("metric") || lowered.includes("趋势") || lowered.includes("监控")
+    || lowered.startsWith("/metric")) {
+    if (!targetServer) {
+      return {
+        intent: "metric_query",
+        riskLevel: "low",
+        reply: "需要指定目标服务器才能查询指标。例如: \"查看 prod-web-01 最近1小时的 CPU 趋势\"",
+        plan: ["需要指定目标服务器"],
+        targetId: null,
+        targetName: null,
+        resourceId: "metric-query",
+        resourceName: "指标查询",
+        requiresApproval: false,
+        warnings: ["未指定目标服务器"],
+        mode: "rule_fallback",
+        missingParams: ["目标服务器"]
+      };
+    }
+    const metricType = lowered.includes("cpu") ? "CPU"
+      : lowered.includes("内存") || lowered.includes("memory") ? "内存"
+        : lowered.includes("磁盘") || lowered.includes("disk") ? "磁盘"
+          : "全量指标";
+    return {
+      intent: "metric_query",
+      riskLevel: "low",
+      reply: `已生成 ${targetServer.hostname} 的${metricType}查询计划。当前: CPU ${targetServer.cpuUsage}%, 内存 ${targetServer.memoryUsage}%, 磁盘 ${targetServer.diskUsage}%`,
+      plan: [
+        `目标: ${targetServer.hostname}`,
+        `指标类型: ${metricType}`,
+        "查询最近指标趋势数据",
+        "返回指标曲线和异常点标注"
+      ],
+      targetId: targetServer.id,
+      targetName: targetServer.hostname,
+      resourceId: "metric-query",
+      resourceName: "指标查询",
+      requiresApproval: false,
+      warnings: [],
+      mode: "rule_fallback",
+      missingParams: []
+    };
+  }
+
+  // 重启服务
+  if (lowered.includes("重启") || lowered.includes("restart") || lowered.includes("重载") || lowered.includes("reload")
+    || lowered.startsWith("/restart")) {
+    if (!targetServer) {
+      return {
+        intent: "restart_service",
+        riskLevel: "high",
+        reply: "重启操作是高危操作，需要指定目标服务器和服务名称。例如: \"重启 prod-web-01 的 nginx\"",
+        plan: ["需要指定目标服务器和服务名称"],
+        targetId: null,
+        targetName: null,
+        resourceId: "restart",
+        resourceName: "重启服务",
+        requiresApproval: true,
+        warnings: ["重启是高风险操作，需要审批"],
+        mode: "rule_fallback",
+        missingParams: ["目标服务器", "服务名称"]
+      };
+    }
+    return {
+      intent: "restart_service",
+      riskLevel: "high",
+      reply: `已生成 ${targetServer.hostname} 的服务重启计划。此操作风险等级较高，需要审批后才能执行。`,
+      plan: [
+        `目标: ${targetServer.hostname} (${targetServer.environment})`,
+        "确认需要重启的服务及其依赖关系",
+        "通知关联业务方",
+        "进入审批流程",
+        "在变更窗口执行重启，监控服务恢复"
+      ],
+      targetId: targetServer.id,
+      targetName: targetServer.hostname,
+      resourceId: "restart",
+      resourceName: "重启服务",
+      requiresApproval: true,
+      warnings: ["重启是高风险操作，请确保在变更窗口执行", "生产环境操作必须审批"],
+      mode: "rule_fallback",
+      missingParams: []
+    };
+  }
+
+  // 回滚
+  if (lowered.includes("回滚") || lowered.includes("rollback") || lowered.startsWith("/rollback")) {
+    if (!targetServer) {
+      return {
+        intent: "rollback",
+        riskLevel: "high",
+        reply: "回滚操作是高危操作，需要指定目标服务器和版本。例如: \"回滚 prod-web-01 的 order-service 到 v1.8.1\"",
+        plan: ["需要指定目标服务器和回滚目标"],
+        targetId: null,
+        targetName: null,
+        resourceId: "rollback",
+        resourceName: "回滚",
+        requiresApproval: true,
+        warnings: ["回滚是高风险操作，需要审批"],
+        mode: "rule_fallback",
+        missingParams: ["目标服务器", "回滚目标"]
+      };
+    }
+    return {
+      intent: "rollback",
+      riskLevel: "high",
+      reply: `已生成 ${targetServer.hostname} 的回滚计划。此操作必须进入审批流程。`,
+      plan: [
+        `目标: ${targetServer.hostname} (${targetServer.environment})`,
+        "确认回滚版本和备份验证",
+        "通知关联业务方确认回滚窗口",
+        "进入审批流程",
+        "执行回滚并验证服务恢复"
+      ],
+      targetId: targetServer.id,
+      targetName: targetServer.hostname,
+      resourceId: "rollback",
+      resourceName: "回滚",
+      requiresApproval: true,
+      warnings: ["回滚是紧急高危操作", "必须确认有可用备份", "需要全链路验证"],
+      mode: "rule_fallback",
+      missingParams: []
     };
   }
 
@@ -270,11 +456,11 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
         resourceName: server.hostname,
         requiresApproval: false,
         warnings: risks.length > 0 ? risks : [],
-        mode: "rule_fallback"
+        mode: "rule_fallback",
+        missingParams: []
       };
     }
 
-    // 没有指定服务器但要求巡检 - 返回全局摘要
     const allRisks: string[] = [];
     for (const s of context.servers) {
       if (s.cpuUsage >= 80) allRisks.push(`${s.hostname}: CPU ${s.cpuUsage}%`);
@@ -313,7 +499,8 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
       resourceName: "全局巡检",
       requiresApproval: false,
       warnings: allRisks.length > 0 ? allRisks : [],
-      mode: "rule_fallback"
+      mode: "rule_fallback",
+      missingParams: []
     };
   }
 
@@ -331,9 +518,13 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
       `- 包含 "部署" → 部署计划`,
       `- 包含 "SSH" → Web SSH 连接`,
       `- 包含 "脚本" → 脚本执行`,
+      `- 包含 "日志/error" → 日志查询`,
+      `- 包含 "指标/监控/趋势" → 指标查询`,
+      `- 包含 "重启" → 服务重启`,
+      `- 包含 "回滚" → 版本回滚`,
       ``,
       `当前有 ${context.servers.length} 台资源、${unresolvedAlerts.length} 条未解决告警。`,
-      `请尝试: "帮我巡检 <主机名>"`
+      `请尝试: "帮我巡检 <主机名>" 或 "查看 <主机名> 最近错误日志"`
     ].join("\n"),
     plan: [
       "未能识别操作意图",
@@ -346,7 +537,8 @@ export function buildRulePlan(message: string, context: ChatOpsContext): ChatOps
     resourceName: "帮助",
     requiresApproval: false,
     warnings: [`未识别到意图: "${trimmed}"`],
-    mode: "rule_fallback"
+    mode: "rule_fallback",
+    missingParams: []
   };
 }
 
@@ -367,7 +559,8 @@ function normalizeModelPlan(parsed: ModelPlan, fallback: ChatOpsPlan): ChatOpsPl
     resourceName: typeof parsed.resourceName === "string" && parsed.resourceName.trim() ? parsed.resourceName.trim() : fallback.resourceName,
     requiresApproval: typeof parsed.requiresApproval === "boolean" ? parsed.requiresApproval : fallback.requiresApproval,
     warnings: Array.isArray(parsed.warnings) ? parsed.warnings.map(String).filter(Boolean) : [],
-    mode: "model"
+    mode: "model",
+    missingParams: Array.isArray(parsed.missingParams) ? parsed.missingParams.map(String).filter(Boolean) : []
   };
 }
 
@@ -460,7 +653,7 @@ function findScript(message: string, scripts: ScriptRecord[]): ScriptRecord | nu
 }
 
 function validIntent(value: unknown): value is ChatOpsIntent {
-  return value === "open_web_ssh" || value === "ai_diagnose" || value === "deployment_plan" || value === "health_check" || value === "script_run";
+  return availableIntents.includes(value as ChatOpsIntent);
 }
 
 function withWarning(plan: ChatOpsPlan, warning: string): ChatOpsPlan {

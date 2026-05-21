@@ -83,7 +83,7 @@ test("buildRulePlan resolves production web server from natural language scope",
   assert.equal(plan.intent, "health_check");
   assert.equal(plan.targetId, "srv-prod-web-01");
   assert.equal(plan.targetName, "prod-web-01");
-  assert.deepEqual(plan.warnings, []);
+  assert.ok(plan.warnings.length > 0, "应检测到该服务器的风险");
 });
 
 test("buildChatOpsPlan uses model JSON when available", async () => {

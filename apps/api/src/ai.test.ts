@@ -11,9 +11,20 @@ import type { AiModelRuntimeRecord } from "./db.js";
 
 const fallback: DiagnosisFallback = {
   summary: "prod-db-01 存在资源压力。",
-  evidence: ["CPU 使用率 81%", "内存使用率 86%"],
-  possibleCauses: ["后台任务占用资源"],
-  repairPlan: ["检查 top 进程", "观察 15 分钟"]
+  impact: "影响 prod-db-01 数据库服务",
+  timeline: [{ time: new Date().toISOString(), event: "发现资源压力" }],
+  evidence: [
+    { source: "server_metrics", content: "CPU 使用率 81%", weight: "high" },
+    { source: "server_metrics", content: "内存使用率 86%", weight: "high" }
+  ],
+  possibleCauses: [{ cause: "后台任务占用资源", confidence: 0.8, evidenceRefs: [0] }],
+  repairPlan: [
+    { step: 1, action: "检查 top 进程", risk: "low", rollback: "无需回滚", estimatedTime: "5分钟" },
+    { step: 2, action: "观察 15 分钟", risk: "low", rollback: "无需回滚", estimatedTime: "15分钟" }
+  ],
+  riskWarnings: [],
+  nextObservations: [],
+  relatedEvents: []
 };
 
 const model: AiModelRuntimeRecord = {
@@ -43,10 +54,10 @@ test("openAiCompatibleChatUrl appends chat completions path once", () => {
 
 test("parseDiagnosisContent extracts strict JSON from model text", () => {
   const parsed = parseDiagnosisContent(`
-    {"summary":"诊断完成","evidence":["e1"],"possibleCauses":["c1"],"repairPlan":["r1"]}
+    {"summary":"诊断完成","evidence":[{"source":"test","content":"e1","weight":"high"}],"possibleCauses":[{"cause":"c1","confidence":0.9,"evidenceRefs":[0]}],"repairPlan":[{"step":1,"action":"r1","risk":"low","rollback":"none","estimatedTime":"5min"}]}
   `);
   assert.equal(parsed.summary, "诊断完成");
-  assert.deepEqual(parsed.evidence, ["e1"]);
+  assert.equal(parsed.evidence?.[0]?.content, "e1");
 });
 
 test("generateDiagnosis uses model response when the call succeeds", async () => {
@@ -60,9 +71,17 @@ test("generateDiagnosis uses model response when the call succeeds", async () =>
             message: {
               content: JSON.stringify({
                 summary: "模型诊断：数据库压力升高。",
-                evidence: ["CPU 81%", "内存 86%"],
-                possibleCauses: ["慢查询增加"],
-                repairPlan: ["查询 pg_stat_activity"]
+                evidence: [
+                  { source: "metrics", content: "CPU 81%", weight: "high" },
+                  { source: "metrics", content: "内存 86%", weight: "high" }
+                ],
+                possibleCauses: [{ cause: "后台任务", confidence: 0.85, evidenceRefs: [0] }],
+                repairPlan: [{ step: 1, action: "查询 pg_stat_activity", risk: "low", rollback: "无需回滚", estimatedTime: "5分钟" }],
+                impact: "数据库压力升高",
+                timeline: [],
+                riskWarnings: [],
+                nextObservations: [],
+                relatedEvents: []
               })
             }
           }
@@ -82,7 +101,7 @@ test("generateDiagnosis uses model response when the call succeeds", async () =>
 
   assert.equal(report.mode, "model");
   assert.equal(report.summary, "模型诊断：数据库压力升高。");
-  assert.deepEqual(report.repairPlan, ["查询 pg_stat_activity"]);
+  assert.equal(report.repairPlan[0]?.action, "查询 pg_stat_activity");
   assert.equal(calls[0]?.url, "https://llm.example.com/v1/chat/completions");
   assert.equal((calls[0]?.init.headers as Record<string, string>).Authorization, "Bearer test-key");
 });
