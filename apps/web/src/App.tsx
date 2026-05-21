@@ -840,7 +840,7 @@ export function App() {
     setMessage("");
     setLoadingChat(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chatops/stream`, {
+      const response = await fetch(`${API_BASE_URL}/api/chatops/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ message: input })

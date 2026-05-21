@@ -305,7 +305,7 @@ export default function Models({ summary }: ModelsProps) {
   async function setDefault(modelId: string) {
     setSubmittingId(modelId);
     try {
-      const updated = await postJson<ModelItem>(`/models/${modelId}/default`, {});
+      const updated = await postJson<ModelItem>(`/api/models/${modelId}/default`, {});
       setModels(current => current.map(m => ({ ...m, isDefault: m.id === updated.id })));
       setSelectedModel(updated);
     } finally {
@@ -316,7 +316,7 @@ export default function Models({ summary }: ModelsProps) {
   async function toggleModel(modelId: string) {
     setSubmittingId(modelId);
     try {
-      const updated = await postJson<ModelItem>(`/models/${modelId}/toggle`, {});
+      const updated = await postJson<ModelItem>(`/api/models/${modelId}/toggle`, {});
       setModels(current => {
         const next = current.map(m => m.id === updated.id ? updated : m);
         if (!next.some(m => m.isDefault) && next.some(m => m.status === "enabled")) {
@@ -337,7 +337,7 @@ export default function Models({ summary }: ModelsProps) {
     setSubmittingId(modelId);
     setTestResult(null);
     try {
-      const result = await postJson<ModelTestResult>(`/models/${modelId}/test`, {});
+      const result = await postJson<ModelTestResult>(`/api/models/${modelId}/test`, {});
       setTestResult(result);
     } finally {
       setSubmittingId(null);
@@ -348,7 +348,7 @@ export default function Models({ summary }: ModelsProps) {
     if (!confirm("确定要删除该模型吗？")) return;
     setSubmittingId(modelId);
     try {
-      await deleteJson<ModelItem>(`/models/${modelId}`);
+      await deleteJson<ModelItem>(`/api/models/${modelId}`);
       setModels(current => {
         const next = current.filter(m => m.id !== modelId);
         if (selectedModel?.id === modelId) {
@@ -395,7 +395,7 @@ export default function Models({ summary }: ModelsProps) {
         costLevel: editDraft.costLevel
       };
       if (editDraft.apiKey) body.apiKey = editDraft.apiKey;
-      const updatedModel = await putJson<ModelItem>(`/models/${editingModel.id}`, body);
+      const updatedModel = await putJson<ModelItem>(`/api/models/${editingModel.id}`, body);
       setModels(current => current.map(m => m.id === updatedModel.id ? updatedModel : m));
       setSelectedModel(updatedModel);
       setEditingModel(null);
@@ -422,7 +422,7 @@ export default function Models({ summary }: ModelsProps) {
     event.preventDefault();
     setSavingModel(true);
     try {
-      const created = await postJson<ModelItem>("/models", {
+      const created = await postJson<ModelItem>("/api/models", {
         ...modelDraft,
         capabilities: modelDraft.provider.includes("Local")
           ? ["内网知识问答", "脚本生成", "日志诊断"]
