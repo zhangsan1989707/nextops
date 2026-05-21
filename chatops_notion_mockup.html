@@ -1,0 +1,185 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+.shell{display:flex;height:680px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;font-family:var(--font-sans);}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.topbar{display:flex;align-items:center;gap:10px;padding:0 20px;height:52px;border-bottom:0.5px solid var(--color-border-tertiary);flex-shrink:0;}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;}
+.topbar-title{font-size:14px;font-weight:500;color:var(--color-text-primary);}
+.topbar-sep{width:1px;height:14px;background:var(--color-border-tertiary);margin:0 4px;}
+.ctx-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary);background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:20px;padding:3px 10px;cursor:pointer;transition:background .15s;}
+.ctx-pill:hover{background:var(--color-background-tertiary);}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.icon-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:var(--border-radius-md);color:var(--color-text-secondary);cursor:pointer;transition:background .15s;border:none;background:transparent;}
+.icon-btn:hover{background:var(--color-background-secondary);}
+.icon-btn.active{color:var(--color-text-primary);background:var(--color-background-secondary);}
+.msgs{flex:1;overflow-y:auto;padding:28px 20px 16px;}
+.msg-row{display:flex;gap:12px;margin-bottom:20px;align-items:flex-start;}
+.msg-row.user{flex-direction:row-reverse;}
+.avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;}
+.av-ai{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);color:var(--color-text-secondary);}
+.av-user{background:#E6F1FB;color:#0C447C;font-size:11px;}
+.bubble{max-width:75%;font-size:13.5px;line-height:1.65;color:var(--color-text-primary);}
+.bubble-ai{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:2px 12px 12px 12px;padding:10px 14px;}
+.bubble-user{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:12px 2px 12px 12px;padding:10px 14px;}
+.bubble-meta{font-size:11px;color:var(--color-text-tertiary);margin-top:5px;}
+.msg-row.user .bubble-meta{text-align:right;}
+.tag-inline{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:4px;font-weight:500;vertical-align:middle;margin:0 2px;}
+.tag-ok{background:#EAF3DE;color:#3B6D11;}
+.tag-warn{background:#FAEEDA;color:#854F0B;}
+.tag-info{background:#E6F1FB;color:#185FA5;}
+.result-card{margin-top:8px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;}
+.result-row{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary);}
+.result-row:last-child{border-bottom:none;}
+.result-row .name{font-weight:500;color:var(--color-text-primary);min-width:120px;}
+.dot-ok{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;}
+.dot-warn{width:6px;height:6px;border-radius:50%;background:#f59e0b;flex-shrink:0;}
+.inputzone{padding:12px 20px 16px;border-top:0.5px solid var(--color-border-tertiary);flex-shrink:0;}
+.chips{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:20px;padding:4px 11px;cursor:pointer;background:transparent;transition:background .15s;}
+.chip:hover{background:var(--color-background-secondary);}
+.chip i{font-size:13px;}
+.inputbox{display:flex;align-items:flex-end;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:10px 12px;}
+.inputbox textarea{flex:1;background:transparent;border:none;outline:none;resize:none;font-size:13.5px;font-family:var(--font-sans);color:var(--color-text-primary);min-height:44px;max-height:120px;line-height:1.6;}
+.inputbox textarea::placeholder{color:var(--color-text-tertiary);}
+.send-btn{width:32px;height:32px;border-radius:var(--border-radius-md);background:var(--color-text-primary);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s;}
+.send-btn:hover{opacity:.8;}
+.send-btn i{color:var(--color-background-primary);font-size:15px;}
+.drawer{width:240px;border-left:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;flex-shrink:0;background:var(--color-background-primary);}
+.drawer-header{padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid var(--color-border-tertiary);flex-shrink:0;}
+.drawer-title{font-size:13px;font-weight:500;color:var(--color-text-primary);}
+.drawer-body{flex:1;overflow-y:auto;padding:12px;}
+.task-item{padding:10px 12px;border-radius:var(--border-radius-md);margin-bottom:6px;border:0.5px solid var(--color-border-tertiary);cursor:pointer;transition:background .15s;}
+.task-item:hover{background:var(--color-background-secondary);}
+.task-top{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+.task-name{font-size:12px;font-weight:500;color:var(--color-text-primary);}
+.task-badge{font-size:10px;padding:2px 6px;border-radius:3px;font-weight:500;}
+.tb-mid{background:#FAEEDA;color:#854F0B;}
+.tb-hi{background:#FCEBEB;color:#A32D2D;}
+.tb-lo{background:#EAF3DE;color:#3B6D11;}
+.task-desc{font-size:11px;color:var(--color-text-secondary);line-height:1.5;}
+.task-time{font-size:10px;color:var(--color-text-tertiary);margin-top:5px;}
+.drawer-section{font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:.05em;padding:8px 0 6px;}
+.asset-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--border-radius-md);cursor:pointer;transition:background .15s;}
+.asset-row:hover{background:var(--color-background-secondary);}
+.asset-name{font-size:12px;color:var(--color-text-primary);}
+.asset-ip{font-size:11px;color:var(--color-text-tertiary);}
+</style>
+
+<h2 class="sr-only">NextOps ChatOps 改版 mockup — Notion AI 极简风格，白色主体 + 右侧任务抽屉</h2>
+
+<div class="shell">
+  <div class="main">
+    <div class="topbar">
+      <div class="status-dot"></div>
+      <span class="topbar-title">ChatOps</span>
+      <div class="topbar-sep"></div>
+      <div class="ctx-pill">
+        <i class="ti ti-server" style="font-size:12px;" aria-hidden="true"></i>
+        1 台在线
+      </div>
+      <div class="ctx-pill">
+        <i class="ti ti-bell" style="font-size:12px;" aria-hidden="true"></i>
+        0 告警
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" aria-label="搜索"><i class="ti ti-search" style="font-size:16px;"></i></button>
+        <button class="icon-btn active" aria-label="任务记录"><i class="ti ti-layout-sidebar-right" style="font-size:16px;"></i></button>
+        <button class="icon-btn" aria-label="设置"><i class="ti ti-settings" style="font-size:16px;"></i></button>
+      </div>
+    </div>
+
+    <div class="msgs">
+      <div class="msg-row">
+        <div class="avatar av-ai"><i class="ti ti-robot" style="font-size:13px;"></i></div>
+        <div>
+          <div class="bubble bubble-ai">你好，我是 NextOps Copilot。描述你的巡检、诊断或部署需求，我会结合当前资产上下文生成执行计划。</div>
+          <div class="bubble-meta">AI Copilot · 刚刚</div>
+        </div>
+      </div>
+
+      <div class="msg-row user">
+        <div class="avatar av-user">LH</div>
+        <div>
+          <div class="bubble bubble-user">帮我巡检生产环境所有资源，并生成风险摘要</div>
+          <div class="bubble-meta">Leo Hang · 16 分钟前</div>
+        </div>
+      </div>
+
+      <div class="msg-row">
+        <div class="avatar av-ai"><i class="ti ti-robot" style="font-size:13px;"></i></div>
+        <div>
+          <div class="bubble bubble-ai">
+            已完成巡检，共扫描 <strong>1 台</strong> 资产。发现 <span class="tag-inline tag-warn">1 项中风险</span> <span class="tag-inline tag-ok">2 项正常</span>
+            <div class="result-card">
+              <div class="result-row"><div class="dot-ok"></div><span class="name">srv-prod-web-01</span><span>CPU 12% · 内存 54%</span><span class="tag-inline tag-ok" style="margin-left:auto;">正常</span></div>
+              <div class="result-row"><div class="dot-warn"></div><span class="name">磁盘 /data</span><span>使用率 81%</span><span class="tag-inline tag-warn" style="margin-left:auto;">注意</span></div>
+              <div class="result-row"><div class="dot-ok"></div><span class="name">Nginx 进程</span><span>响应 < 50ms</span><span class="tag-inline tag-ok" style="margin-left:auto;">正常</span></div>
+            </div>
+          </div>
+          <div class="bubble-meta">AI Copilot · 14 分钟前</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="inputzone">
+      <div class="chips">
+        <button class="chip"><i class="ti ti-radar"></i>巡检</button>
+        <button class="chip"><i class="ti ti-stethoscope"></i>诊断</button>
+        <button class="chip"><i class="ti ti-terminal-2"></i>SSH</button>
+        <button class="chip"><i class="ti ti-file-text"></i>日志</button>
+        <button class="chip"><i class="ti ti-rocket"></i>部署</button>
+        <button class="chip"><i class="ti ti-code"></i>脚本</button>
+      </div>
+      <div class="inputbox">
+        <textarea placeholder="描述需求，或输入 / 触发快捷命令…" rows="2"></textarea>
+        <button class="send-btn" aria-label="发送"><i class="ti ti-arrow-up"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">任务记录</span>
+      <button class="icon-btn" aria-label="关闭抽屉"><i class="ti ti-x" style="font-size:15px;"></i></button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-section">进行中</div>
+      <div class="task-item">
+        <div class="task-top">
+          <span class="task-name">chatops_health_check</span>
+          <span class="task-badge tb-mid">中</span>
+        </div>
+        <div class="task-desc">当前上下文没有生产环境资源，无法执行巡检。</div>
+        <div class="task-time">16 分钟前 · 已规划</div>
+      </div>
+
+      <div class="drawer-section" style="margin-top:8px;">历史</div>
+      <div class="task-item">
+        <div class="task-top">
+          <span class="task-name">chatops_health_check</span>
+          <span class="task-badge tb-lo">低</span>
+        </div>
+        <div class="task-desc">已生成巡检计划，当前需要人工确认目标资产。</div>
+        <div class="task-time">1 天前 · 已规划</div>
+      </div>
+      <div class="task-item">
+        <div class="task-top">
+          <span class="task-name">chatops_health_check</span>
+          <span class="task-badge tb-mid">中</span>
+        </div>
+        <div class="task-desc">对 srv-prod-web-01 执行健康检查，并基于当前资产上下文生成报告。</div>
+        <div class="task-time">2 天前 · 已规划</div>
+      </div>
+
+      <div class="drawer-section" style="margin-top:8px;">在线资产</div>
+      <div class="asset-row">
+        <div class="dot-ok"></div>
+        <div>
+          <div class="asset-name">srv-prod-web-01</div>
+          <div class="asset-ip">192.168.1.101</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

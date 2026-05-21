@@ -587,7 +587,7 @@ export function App() {
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(menuGroups.map((g) => [g.title, g.title === "核心业务" || g.title === "资产与脚本"]))
+    Object.fromEntries(menuGroups.map((g) => [g.title, true]))
   );
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("nextops-theme") ?? "light");
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -710,7 +710,7 @@ export function App() {
   }, [activePage]);
 
   async function loadServers() {
-    const nextServers = await fetchJson<{ items: ServerItem[] }>("/servers");
+    const nextServers = await fetchJson<{ items: ServerItem[] }>("/api/servers");
     setServers(nextServers.items);
   }
 
@@ -728,15 +728,15 @@ export function App() {
     try {
       if (page === "dashboard") {
         const [nextSummary, nextServers] = await Promise.all([
-          fetchJson<DashboardSummary>("/dashboard/summary"),
-          fetchJson<{ items: ServerItem[] }>("/servers")
+          fetchJson<DashboardSummary>("/api/dashboard/summary"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
         ]);
         setSummary(nextSummary);
         setServers(nextServers.items);
       } else if (page === "alerts") {
         const [nextAlerts, nextServers] = await Promise.all([
-          fetchJson<{ items: AlertItem[] }>("/alerts"),
-          fetchJson<{ items: ServerItem[] }>("/servers")
+          fetchJson<{ items: AlertItem[] }>("/api/alerts"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
         ]);
         setAlerts(nextAlerts.items);
         setServers(nextServers.items);
@@ -744,40 +744,40 @@ export function App() {
         await loadServers();
       } else if (page === "scripts") {
         const [nextScripts, nextServers] = await Promise.all([
-          fetchJson<{ items: ScriptItem[] }>("/scripts"),
-          fetchJson<{ items: ServerItem[] }>("/servers")
+          fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
         ]);
         setScripts(nextScripts.items);
         setServers(nextServers.items);
       } else if (page === "commands") {
-        const nextSlashCommands = await fetchJson<{ items: SlashCommandItem[] }>("/slash-commands");
+        const nextSlashCommands = await fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands");
         setSlashCommands(nextSlashCommands.items);
       } else if (page === "packages") {
         const [nextPackages, nextServers] = await Promise.all([
-          fetchJson<{ items: PackageItem[] }>("/packages"),
-          fetchJson<{ items: ServerItem[] }>("/servers")
+          fetchJson<{ items: PackageItem[] }>("/api/packages"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
         ]);
         setPackages(nextPackages.items);
         setServers(nextServers.items);
       } else if (page === "files") {
         const [nextFiles, nextServers] = await Promise.all([
-          fetchJson<{ items: FileItem[] }>("/files"),
-          fetchJson<{ items: ServerItem[] }>("/servers")
+          fetchJson<{ items: FileItem[] }>("/api/files"),
+          fetchJson<{ items: ServerItem[] }>("/api/servers")
         ]);
         setFiles(nextFiles.items);
         setServers(nextServers.items);
       } else if (page === "tenants") {
-        setTenantSummary(await fetchJson<TenantSummary>("/tenants/summary"));
+        setTenantSummary(await fetchJson<TenantSummary>("/api/tenants/summary"));
       } else if (page === "approvals") {
-        setApprovalSummary(await fetchJson<ApprovalSummary>("/approvals"));
+        setApprovalSummary(await fetchJson<ApprovalSummary>("/api/approvals"));
       } else if (page === "models") {
-        setModelSummary(await fetchJson<ModelSummary>("/models"));
+        setModelSummary(await fetchJson<ModelSummary>("/api/models"));
       } else if (page === "members") {
-        setMemberSummary(await fetchJson<MemberSummary>("/members"));
+        setMemberSummary(await fetchJson<MemberSummary>("/api/members"));
       } else if (page === "teams") {
-        setTeamSummary(await fetchJson<TeamSummary>("/teams/summary"));
+        setTeamSummary(await fetchJson<TeamSummary>("/api/teams/summary"));
       } else if (page === "roles") {
-        setRoleSummary(await fetchJson<RoleSummary>("/roles/summary"));
+        setRoleSummary(await fetchJson<RoleSummary>("/api/roles/summary"));
       }
     } catch (error) {
       if (error instanceof Error && error.message === "Unauthorized") {
@@ -806,7 +806,7 @@ export function App() {
           console.error('Failed to refresh servers:', err);
         });
         if (activePage === "alerts") {
-          fetchJson<{ items: AlertItem[] }>("/alerts")
+          fetchJson<{ items: AlertItem[] }>("/api/alerts")
             .then((data) => setAlerts(data.items))
             .catch((err) => {
               console.error('Failed to refresh alerts:', err);
