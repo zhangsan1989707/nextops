@@ -1,382 +1,294 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
-  Bell,
+  Activity,
+  AlertTriangle,
   Bot,
-  Boxes,
-  ChevronRight,
+  CheckCircle2,
   Clock,
-  FileCode2,
-  FileText,
-  Gauge,
-  MessageSquareText,
-  Terminal,
+  Server,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
-import { LineChart } from "../../components/charts/LineChart";
-import { ServerHealth } from "../../components/common/ServerHealth";
-import { CopilotDrawer } from "../../components/common/CopilotDrawer";
+import { fetchDashboard } from "../../api/client";
+import type { DashboardData } from "../../api/client";
 
-export type DashboardSummary = {
-  servers: { total: number; online: number; warning: number; offline: number };
-  alerts: { total: number; critical: number; open: number };
-  automation: { slashCommands: number; scripts: number; aiDiagnosesToday: number };
-  trends: Array<{ label: string; cpu: number; memory: number; alerts: number }>;
-};
-
-export type ServerItem = {
-  id: string;
-  ip: string;
-  port: number;
-  hostname: string;
-  environment: string;
-  status: string;
-  agentStatus: string;
-  os: string;
-  cpuUsage: number;
-  memoryUsage: number;
-  diskUsage: number;
-  loadAvg: number;
-  tags: string[];
-  type: string;
-};
-
-import type { Server, Alert } from "../../api";
-
-interface DashboardProps {
-  servers: Server[];
-  alerts: Alert[];
+function severityColor(s: string): string {
+  switch (s) {
+    case "critical": return "var(--color-critical, #ef4444)";
+    case "warning": return "var(--color-warning, #f59e0b)";
+    case "info": return "var(--color-info, #3b82f6)";
+    default: return "var(--text-muted)";
+  }
 }
 
-export function Dashboard({ servers, alerts }: DashboardProps) {
-  const primaryServer = servers[0];
-  const [copilotOpen, setCopilotOpen] = useState(false);
-  const [copilotMessage, setCopilotMessage] = useState("");
-  const [copilotLoading, setCopilotLoading] = useState(false);
+function healthGrade(score: number): { label: string; className: string } {
+  if (score >= 90) return { label: "优秀", className: "" };
+  if (score >= 70) return { label: "良好", className: "" };
+  if (score >= 50) return { label: "一般", className: "" };
+  return { label: "需关注", className: "" };
+}
 
-  const handleQuickAction = (_action: string) => {};
+export function Dashboard() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const aiStatus = useMemo(() => {
-    const onlineServers = servers.filter(s => s.agentStatus === 'online').length;
-    const totalServers = servers.length;
-    const criticalAlerts = alerts.filter(a => a.severity === 'critical').length;
-    const openAlerts = alerts.filter(a => a.status === 'open').length;
-    const avgCpu = servers.length > 0 
-      ? Math.round(servers.reduce((sum, s) => sum + s.cpuUsage, 0) / servers.length)
-      : 0;
-    const highCpuServers = servers.filter(s => s.cpuUsage > 80).length;
+  useEffect(() => {
+    loadDashboard();
+    const interval = setInterval(loadDashboard, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-    let status: 'healthy' | 'warning' | 'critical' = 'healthy';
-    let title = '系统运行正常';
-    let description = '暂无高风险问题，所有服务指标正常';
-    
-    if (criticalAlerts > 0) {
-      status = 'critical';
-      title = '存在紧急告警';
-      description = `${criticalAlerts} 个 Critical 告警需要立即处理`;
-    } else if (openAlerts > 2 || highCpuServers > 1) {
-      status = 'warning';
-      title = '部分指标异常';
-      description = `${openAlerts} 个开放告警，${highCpuServers} 台服务器 CPU 偏高`;
+  async function loadDashboard() {
+    try {
+      const result = await fetchDashboard();
+      setData(result);
+    } catch {
+      console.error("Failed to load dashboard data");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    const observations = [];
-    if (avgCpu > 50) {
-      observations.push(`平均 CPU 利用率偏高 (${avgCpu}%)`);
-    }
-    if (servers.some(s => s.memoryUsage > 70)) {
-      observations.push('部分服务器内存使用率较高');
-    }
-    if (servers.some(s => s.diskUsage > 80)) {
-      observations.push('存在磁盘利用率超 80% 的服务器');
-    }
-    if (observations.length === 0) {
-      observations.push('所有关键指标均在正常范围内');
-    }
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner" />
+        <span>加载驾驶舱数据...</span>
+      </div>
+    );
+  }
 
-    return { status, title, description, observations, avgCpu, criticalAlerts, openAlerts, onlineServers, totalServers };
-  }, [servers, alerts]);
+  if (!data) {
+    return <div className="table-empty">暂无仪表盘数据</div>;
+  }
 
-  const eventTimeline = useMemo(() => {
-    const events = [];
-    const now = new Date();
-    
-    if (aiStatus.criticalAlerts > 0) {
-      events.push({
-        time: new Date(now.getTime() - 2 * 60000).toISOString(),
-        type: 'critical',
-        event: `检测到 ${aiStatus.criticalAlerts} 个 Critical 级别告警`,
-        action: '已通知值班人员'
-      });
-    }
-    
-    if (aiStatus.avgCpu > 60) {
-      events.push({
-        time: new Date(now.getTime() - 5 * 60000).toISOString(),
-        type: 'warning',
-        event: `CPU 利用率超过 60% 阈值`,
-        action: 'AI 启动自动分析'
-      });
-    }
-    
-    events.push({
-      time: new Date(now.getTime() - 15 * 60000).toISOString(),
-      type: 'info',
-      event: `完成 0 次自动诊断`,
-      action: '系统健康检查完成'
-    });
-    
-    events.push({
-      time: new Date(now.getTime() - 30 * 60000).toISOString(),
-      type: 'info',
-      event: `${aiStatus.onlineServers}/${aiStatus.totalServers} 台服务器在线`,
-      action: 'Agent 心跳正常'
-    });
-
-    return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-  }, [aiStatus]);
-
-  const recommendedActions = useMemo(() => {
-    const actions = [];
-    
-    if (aiStatus.status === 'critical') {
-      actions.push({ label: '处理告警', icon: Bell, priority: 'high', action: '处理紧急告警' });
-    }
-    if (aiStatus.status === 'warning' || aiStatus.status === 'healthy') {
-      actions.push({ label: '执行巡检', icon: Gauge, priority: 'normal', action: '执行系统巡检' });
-    }
-    actions.push({ label: '生成日报', icon: FileText, priority: 'low', action: '生成今日运维日报' });
-    actions.push({ label: '深度分析', icon: Bot, priority: 'normal', action: 'AI 深度诊断' });
-    
-    return actions;
-  }, [aiStatus]);
-
-  const opsCategories = useMemo(() => [
-    {
-      title: '故障处理',
-      items: [
-        { label: '告警处置', icon: Bell, action: aiStatus.criticalAlerts > 0 
-          ? `处理 ${aiStatus.criticalAlerts} 个紧急告警` 
-          : '查看所有开放告警' },
-        { label: '远程诊断', icon: Terminal, action: primaryServer 
-          ? `SSH 到 ${primaryServer.hostname} 执行诊断` 
-          : '选择服务器进行诊断' },
-      ]
-    },
-    {
-      title: 'AI 操作',
-      items: [
-        { label: '智能巡检', icon: Gauge, action: '执行生产环境全量巡检' },
-        { label: '根因分析', icon: Bot, action: '分析最近的告警根因' },
-        { label: '日志分析', icon: FileText, action: 'AI 总结最近 100 条错误日志' },
-      ]
-    },
-    {
-      title: '自动化',
-      items: [
-        { label: '部署 Agent', icon: Boxes, action: '为待纳管资源生成部署计划' },
-        { label: '执行脚本', icon: FileCode2, action: '选择脚本在目标资源执行' },
-      ]
-    }
-  ], [aiStatus, primaryServer]);
-
-  const todaySummary = useMemo(() => ({
-    serversOnline: `${aiStatus.onlineServers}/${aiStatus.totalServers}`,
-    criticalAlerts: aiStatus.criticalAlerts,
-    openAlerts: aiStatus.openAlerts,
-    aiDiagnoses: 0,
-    avgCpu: aiStatus.avgCpu,
-    avgMemory: servers.length > 0 
-      ? Math.round(servers.reduce((sum, s) => sum + s.memoryUsage, 0) / servers.length)
-      : 0,
-    agentOnline: aiStatus.onlineServers,
-  }), [aiStatus, servers]);
+  const healthScore = data.metrics?.healthScore ?? 0;
+  const health = healthGrade(healthScore);
+  const criticalAlerts = data.alerts?.critical ?? 0;
+  const highRiskServers = data.servers?.highRisk ?? 0;
+  const highRiskList = data.servers?.highRiskList ?? [];
+  const todayTasks = (data.automation?.scriptsExecuted ?? 0) + (data.automation?.aiDiagnosesToday ?? 0);
+  const convergenceRate = data.opsSla?.alertConvergenceRate ?? data.alerts?.alertConvergenceRate ?? 0;
+  const avgResponseTime = data.opsSla?.avgResponseTimeMinutes ?? data.metrics?.avgResponseTimeMinutes ?? 0;
+  const mttr = data.metrics?.mttrEstimateMinutes ?? 0;
+  const aiDiagnoses = data.ai?.aiDiagnosesToday ?? data.automation?.aiDiagnosesToday ?? 0;
+  const aiAdoptionRate = data.ai?.aiAdoptionRate ?? 0;
+  const timeSaved = data.ai?.estimatedTimeSaved ?? 0;
+  const alertTimeline = data.alerts?.alertTimeline ?? [];
 
   return (
-    <>
-      <CopilotDrawer 
-        open={copilotOpen} 
-        onClose={() => setCopilotOpen(false)}
-        message={copilotMessage}
-        setMessage={setCopilotMessage}
-        loading={copilotLoading}
-        onSend={(msg) => {
-          handleQuickAction(msg);
-        }}
-      />
-
-      <div className="content-grid">
-        <section className="ai-status-hero">
-          <div className="ai-status-badge">
-            <div className={`status-indicator ${aiStatus.status}`} />
-            <span className="status-label">{aiStatus.status === 'healthy' ? '健康' : aiStatus.status === 'warning' ? '注意' : '危险'}</span>
-          </div>
-          <div className="ai-status-content">
-            <h2>{aiStatus.title}</h2>
-            <p>{aiStatus.description}</p>
-          </div>
-          <div className="ai-observations">
-            <strong>最近观察到：</strong>
-            <ul>
-              {aiStatus.observations.map((obs, i) => <li key={i}>{obs}</li>)}
-            </ul>
-          </div>
-          <div className="ai-actions">
-            <button className="primary-button" onClick={() => handleQuickAction('执行系统巡检')}>
-              <Gauge size={16} /> 查看分析
-            </button>
-            <button className="secondary-button" onClick={() => handleQuickAction('执行巡检')}>
-              <Bot size={16} /> 执行巡检
-            </button>
-            <button className="secondary-button" onClick={() => handleQuickAction('生成今日运维日报')}>
-              <FileText size={16} /> 生成日报
-            </button>
-          </div>
-          <button className="copilot-trigger" onClick={() => setCopilotOpen(true)}>
-            <MessageSquareText size={18} />
-            <span>AI 助手</span>
+    <div className="content-grid">
+      <section className="ai-status-hero">
+        <div className="ai-status-badge">
+          <div className={`status-indicator ${healthScore >= 70 ? "healthy" : healthScore >= 50 ? "warning" : "critical"}`} />
+          <span className="status-label">{health.label}</span>
+        </div>
+        <div className="ai-status-content">
+          <h2>运维驾驶舱</h2>
+          <p>系统健康度 {healthScore} 分，{criticalAlerts > 0 ? `存在 ${criticalAlerts} 个严重告警需处理` : "当前运行稳定"}</p>
+        </div>
+        <div className="ai-actions">
+          <button className="primary-button" type="button">
+            <TrendingUp size={16} /> 查看详情
           </button>
-        </section>
+          <button className="secondary-button" type="button">
+            <Bot size={16} /> AI 分析
+          </button>
+        </div>
+      </section>
 
-        <section className="today-summary">
-          <h3><Clock size={16} /> 今日运维摘要</h3>
-          <div className="summary-metrics">
-            <div className="summary-item">
-              <strong>{todaySummary.serversOnline}</strong>
-              <span>服务器在线</span>
-            </div>
-            <div className={`summary-item ${todaySummary.criticalAlerts > 0 ? 'alert' : ''}`}>
-              <strong>{todaySummary.criticalAlerts}</strong>
-              <span>高危告警</span>
-            </div>
-            <div className="summary-item">
-              <strong>{todaySummary.aiDiagnoses}</strong>
-              <span>AI 诊断</span>
-            </div>
-            <div className="summary-item">
-              <strong>{todaySummary.avgCpu}%</strong>
-              <span>平均 CPU</span>
-            </div>
-            <div className="summary-item">
-              <strong>{todaySummary.avgMemory}%</strong>
-              <span>平均内存</span>
-            </div>
-            <div className="summary-item">
-              <strong>{todaySummary.agentOnline}</strong>
-              <span>Agent 在线</span>
-            </div>
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className={`metric-icon ${healthScore >= 90 ? "green" : healthScore >= 70 ? "blue" : healthScore >= 50 ? "amber" : "pink"}`}>
+            <ShieldCheck size={20} />
           </div>
-        </section>
+          <span>健康度分数</span>
+          <strong>{healthScore}</strong>
+        </article>
+        <article className={`metric-card ${criticalAlerts > 0 ? "alert" : ""}`}>
+          <div className="metric-icon pink">
+            <AlertTriangle size={20} />
+          </div>
+          <span>严重告警</span>
+          <strong>{criticalAlerts}</strong>
+        </article>
+        <article className={`metric-card ${highRiskServers > 0 ? "alert" : ""}`}>
+          <div className="metric-icon amber">
+            <Server size={20} />
+          </div>
+          <span>高风险服务器</span>
+          <strong>{highRiskServers}</strong>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon blue">
+            <Activity size={20} />
+          </div>
+          <span>今日任务</span>
+          <strong>{todayTasks}</strong>
+        </article>
+      </div>
 
+      {highRiskList.length > 0 && (
         <section className="panel wide">
           <div className="panel-header">
             <div>
-              <p className="eyebrow">实时态势</p>
-              <h2>性能趋势</h2>
-            </div>
-            <div className="trend-header">
-              {servers.length > 0 && (
-                <>
-                  <span className="trend-current cpu">CPU {servers[0].cpuUsage}%</span>
-                  <span className="trend-current mem">内存 {servers[0].memoryUsage}%</span>
-                </>
-              )}
-              <button className="text-button" type="button">
-                查看监控 <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-          <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>暂无趋势数据</div>
-        </section>
-
-        <section className="panel wide">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">资产</p>
-              <h2>资源健康度</h2>
+              <p className="eyebrow">风险</p>
+              <h2>高风险服务器</h2>
             </div>
           </div>
           <div className="server-stack">
-            {servers.map((server) => (
-              <ServerHealth key={server.id} server={server} />
-            ))}
-          </div>
-        </section>
-
-        <section className={`panel event-timeline ${aiStatus.criticalAlerts > 0 ? 'status-crit' : aiStatus.openAlerts > 0 ? 'status-warn' : ''}`}>
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">事件流</p>
-              <h2>系统事件</h2>
-            </div>
-            <span className="timeline-live">
-              <span className="live-dot" /> 实时
-            </span>
-          </div>
-          <div className="timeline-list">
-            {eventTimeline.map((event, i) => (
-              <div key={i} className={`timeline-item ${event.type}`}>
-                <div className="timeline-time">
-                  {new Date(event.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+            {highRiskList.map((server) => (
+              <div key={server.id} className="server-health-card">
+                <div className="server-health-top">
+                  <div className="server-health-status">
+                    <div className={`status-indicator ${server.status === "online" ? "warning" : "critical"}`} />
+                    <strong>{server.hostname}</strong>
+                  </div>
+                  <span className={`server-status-badge ${server.status === "online" ? "online" : "offline"}`}>
+                    {server.status === "online" ? "在线" : "离线"}
+                  </span>
                 </div>
-                <div className={`timeline-dot ${event.type}`} />
-                <div className="timeline-content">
-                  <strong>{event.event}</strong>
-                  <span>{event.action}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel recommended-actions">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">决策引导</p>
-              <h2>推荐动作</h2>
-            </div>
-          </div>
-          <div className="action-cards">
-            {recommendedActions.map((action, i) => (
-              <button
-                key={i}
-                className={`action-card ${action.priority}`}
-                onClick={() => handleQuickAction(action.action)}
-              >
-                <action.icon size={20} />
-                <span>{action.label}</span>
-                {action.priority === 'high' && <span className="priority-badge">紧急</span>}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel wide ops-scenarios">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">操作入口</p>
-              <h2>运维动作</h2>
-            </div>
-          </div>
-          <div className="ops-categories">
-            {opsCategories.map((category, i) => (
-              <div key={i} className="ops-category">
-                <h4>{category.title}</h4>
-                <div className="ops-items">
-                  {category.items.map((item, j) => (
-                    <button
-                      key={j}
-                      className="ops-item-btn"
-                      onClick={() => handleQuickAction(item.action)}
-                    >
-                      <item.icon size={16} />
-                      <span>{item.label}</span>
-                    </button>
-                  ))}
+                <div className="server-health-metrics">
+                  <div className="health-bar-item">
+                    <span className="health-bar-label">CPU</span>
+                    <div className="health-bar-track">
+                      <div
+                        className={`health-bar-fill ${server.cpuUsage > 80 ? "critical" : server.cpuUsage > 60 ? "warning" : "ok"}`}
+                        style={{ width: `${Math.min(server.cpuUsage, 100)}%` }}
+                      />
+                    </div>
+                    <span className="health-bar-value">{server.cpuUsage}%</span>
+                  </div>
+                  <div className="health-bar-item">
+                    <span className="health-bar-label">内存</span>
+                    <div className="health-bar-track">
+                      <div
+                        className={`health-bar-fill ${server.memoryUsage > 80 ? "critical" : server.memoryUsage > 60 ? "warning" : "ok"}`}
+                        style={{ width: `${Math.min(server.memoryUsage, 100)}%` }}
+                      />
+                    </div>
+                    <span className="health-bar-value">{server.memoryUsage}%</span>
+                  </div>
+                  <div className="health-bar-item">
+                    <span className="health-bar-label">磁盘</span>
+                    <div className="health-bar-track">
+                      <div
+                        className={`health-bar-fill ${server.diskUsage > 80 ? "critical" : server.diskUsage > 60 ? "warning" : "ok"}`}
+                        style={{ width: `${Math.min(server.diskUsage, 100)}%` }}
+                      />
+                    </div>
+                    <span className="health-bar-value">{server.diskUsage}%</span>
+                  </div>
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">效率</p>
+              <h2>运维效能</h2>
+            </div>
+          </div>
+          <div className="metric-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <article className="metric-card">
+              <div className="metric-icon green">
+                <TrendingUp size={20} />
+              </div>
+              <span>告警收敛率</span>
+              <strong>{convergenceRate}%</strong>
+            </article>
+            <article className="metric-card">
+              <div className="metric-icon blue">
+                <Clock size={20} />
+              </div>
+              <span>平均响应</span>
+              <strong>{avgResponseTime} min</strong>
+            </article>
+            <article className="metric-card">
+              <div className="metric-icon amber">
+                <Zap size={20} />
+              </div>
+              <span>MTTR 估算</span>
+              <strong>{mttr} min</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">AI</p>
+              <h2>智能化</h2>
+            </div>
+          </div>
+          <div className="metric-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <article className="metric-card">
+              <div className="metric-icon blue">
+                <Bot size={20} />
+              </div>
+              <span>AI 诊断次数</span>
+              <strong>{aiDiagnoses}</strong>
+            </article>
+            <article className="metric-card">
+              <div className="metric-icon green">
+                <Sparkles size={20} />
+              </div>
+              <span>采纳率</span>
+              <strong>{aiAdoptionRate}%</strong>
+            </article>
+            <article className="metric-card">
+              <div className="metric-icon amber">
+                <CheckCircle2 size={20} />
+              </div>
+              <span>节省时间</span>
+              <strong>{timeSaved} min</strong>
+            </article>
           </div>
         </section>
       </div>
-    </>
+
+      <section className={`panel wide event-timeline ${criticalAlerts > 0 ? "status-crit" : ""}`}>
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">操作</p>
+            <h2>最近告警时间线</h2>
+          </div>
+          <span className="timeline-live">
+            <span className="live-dot" /> 实时
+          </span>
+        </div>
+        {alertTimeline.length > 0 ? (
+          <div className="timeline-list">
+            {alertTimeline.map((item, i) => (
+              <div key={i} className={`timeline-item ${item.severity}`}>
+                <div className="timeline-time">
+                  {new Date(item.time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <div className={`timeline-dot ${item.severity}`} />
+                <div className="timeline-content">
+                  <strong>{item.title}</strong>
+                  <span style={{ color: severityColor(item.severity) }}>
+                    {item.severity === "critical" ? "严重" : item.severity === "warning" ? "警告" : "信息"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+            暂无告警记录
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
+
+export default Dashboard;

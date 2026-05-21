@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import {
+  AlertTriangle,
   ArrowUp,
   Bell,
   Bot,
@@ -52,7 +53,21 @@ export type ChatResponse = {
   requiresApproval?: boolean;
   targetId?: string | null;
   targetName?: string | null;
+  missingParams?: string[];
 };
+
+function intentLabel(intent: string): string {
+  const map: Record<string, string> = {
+    system_check: "系统巡检",
+    diagnosis: "智能诊断",
+    ssh_exec: "远程执行",
+    log_query: "日志查询",
+    metric_query: "指标查询",
+    restart_service: "服务重启",
+    rollback: "回滚",
+  };
+  return map[intent] ?? intent;
+}
 
 interface TimelineTask {
   id: string;
@@ -249,10 +264,30 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
 
                   {item.role === "assistant" && item.response?.plan && item.response.plan.length > 0 && (
                     <div className="result-card">
+                      <div className="result-row" style={{ marginBottom: 8 }}>
+                        <span className="result-name" style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                          意图: {intentLabel(item.response?.intent ?? "")}
+                        </span>
+                      </div>
                       {item.response.plan.map((step, idx) => (
                         <div className="result-row" key={idx}>
                           <span className={`dot-${item.response?.riskLevel === "high" ? "warn" : "ok"}`} />
                           <span className="result-name">{step}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {item.role === "assistant" && item.response?.missingParams && item.response.missingParams.length > 0 && (
+                    <div className="result-card" style={{ background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, color: "#f59e0b" }}>
+                        <AlertTriangle size={14} />
+                        <strong style={{ fontSize: 13 }}>缺少以下参数，请补充：</strong>
+                      </div>
+                      {item.response.missingParams.map((param, i) => (
+                        <div className="result-row" key={i}>
+                          <span className="dot-warn" />
+                          <span className="result-name">{param}</span>
                         </div>
                       ))}
                     </div>
@@ -309,6 +344,15 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
                 <span>{cmd.label}</span>
               </button>
             ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 0 8px", fontSize: 11, color: "var(--text-muted)" }}>
+            <span>支持意图:</span>
+            <span style={{ color: "var(--text-secondary)" }}>巡检</span>
+            <span style={{ color: "var(--text-secondary)" }}>诊断</span>
+            <span style={{ color: "var(--text-secondary)" }}>日志查询</span>
+            <span style={{ color: "var(--text-secondary)" }}>指标查询</span>
+            <span style={{ color: "var(--text-secondary)" }}>服务重启</span>
+            <span style={{ color: "var(--text-secondary)" }}>回滚</span>
           </div>
           <form className="inputbox" onSubmit={sendMessage}>
             <textarea

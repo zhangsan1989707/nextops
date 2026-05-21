@@ -49,11 +49,11 @@ function App() {
   const renderPage = () => {
     switch (currentPath) {
       case "/":
-        return <Dashboard servers={servers} alerts={alerts} />;
+        return <Dashboard />;
       case "/chatops":
         return <ChatOps servers={servers} alerts={alerts} />;
       case "/alerts":
-        return <Alerts alerts={alerts} servers={servers} onOpenServer={(id) => setCurrentPath(`/servers/${id}`)} />;
+        return <Alerts servers={servers} onOpenServer={(id) => setCurrentPath(`/servers/${id}`)} />;
       case "/servers":
         return <Servers servers={servers} />;
       case "/scripts":
@@ -77,7 +77,7 @@ function App() {
       case "/roles":
         return <Roles />;
       default:
-        return <Dashboard servers={servers} alerts={alerts} />;
+        return <Dashboard />;
     }
   };
 
