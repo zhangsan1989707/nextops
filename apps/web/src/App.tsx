@@ -519,11 +519,24 @@ type AuthUser = {
   team: string;
 };
 
-export function App() {
-  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
+function parseStoredUser(): AuthUser | null {
+  try {
     const stored = localStorage.getItem("nextops_user");
-    return stored ? JSON.parse(stored) as AuthUser : null;
-  });
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== 'object' || !parsed.id || !parsed.name) {
+      throw new Error('Invalid user data');
+    }
+    return parsed as AuthUser;
+  } catch (err) {
+    console.error('Failed to parse stored user data:', err);
+    localStorage.removeItem("nextops_user");
+    return null;
+  }
+}
+
+export function App() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(parseStoredUser);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -595,19 +608,22 @@ export function App() {
     setLoginLoading(true);
     setLoginError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
       if (!res.ok) {
-        const data = await res.json() as { message?: string };
-        throw new Error(data.message ?? "登录失败");
+        const data = await res.json().catch(() => ({ message: undefined }));
+        throw new Error((data as { message?: string })?.message ?? "登录失败");
       }
-      const data = await res.json() as { token: string; user: AuthUser };
+      const data = await res.json().catch(() => null);
+      if (!data || typeof data !== 'object' || !data.token || !data.user) {
+        throw new Error('无效的响应格式');
+      }
       localStorage.setItem("nextops_token", data.token);
       localStorage.setItem("nextops_user", JSON.stringify(data.user));
-      setAuthUser(data.user);
+      setAuthUser(data.user as AuthUser);
       setLoginEmail("");
       setLoginPassword("");
     } catch (err) {
@@ -640,6 +656,8 @@ export function App() {
             value={loginEmail}
             onChange={(e) => setLoginEmail(e.target.value)}
             required
+            pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
+            title="请输入有效的邮箱地址"
           />
           <input
             className="login-input"
@@ -648,6 +666,8 @@ export function App() {
             value={loginPassword}
             onChange={(e) => setLoginPassword(e.target.value)}
             required
+            minLength={6}
+            title="密码至少需要6个字符"
           />
           <button
             className="login-button"
@@ -674,7 +694,7 @@ export function App() {
   }, [activePage]);
 
   async function loadServers() {
-    const nextServers = await fetchJson<{ items: ServerItem[] }>("/api/servers");
+    const nextServers = await fetchJson<{ items: ServerItem[] }>("/servers");
     setServers(nextServers.items);
   }
 
@@ -682,7 +702,7 @@ export function App() {
     await loadPageData(activePage);
   }
 
-  async function loadPageData(page: string) {
+  const loadPageData = useCallback(async (page: string) => {
     setPageLoading(true);
     setPageError(null);
     if (page === "servers") {
@@ -692,15 +712,15 @@ export function App() {
     try {
       if (page === "dashboard") {
         const [nextSummary, nextServers] = await Promise.all([
-          fetchJson<DashboardSummary>("/api/dashboard/summary"),
-          fetchJson<{ items: ServerItem[] }>("/api/servers")
+          fetchJson<DashboardSummary>("/dashboard/summary"),
+          fetchJson<{ items: ServerItem[] }>("/servers")
         ]);
         setSummary(nextSummary);
         setServers(nextServers.items);
       } else if (page === "alerts") {
         const [nextAlerts, nextServers] = await Promise.all([
-          fetchJson<{ items: AlertItem[] }>("/api/alerts"),
-          fetchJson<{ items: ServerItem[] }>("/api/servers")
+          fetchJson<{ items: AlertItem[] }>("/alerts"),
+          fetchJson<{ items: ServerItem[] }>("/servers")
         ]);
         setAlerts(nextAlerts.items);
         setServers(nextServers.items);
@@ -708,40 +728,40 @@ export function App() {
         await loadServers();
       } else if (page === "scripts") {
         const [nextScripts, nextServers] = await Promise.all([
-          fetchJson<{ items: ScriptItem[] }>("/api/scripts"),
-          fetchJson<{ items: ServerItem[] }>("/api/servers")
+          fetchJson<{ items: ScriptItem[] }>("/scripts"),
+          fetchJson<{ items: ServerItem[] }>("/servers")
         ]);
         setScripts(nextScripts.items);
         setServers(nextServers.items);
       } else if (page === "commands") {
-        const nextSlashCommands = await fetchJson<{ items: SlashCommandItem[] }>("/api/slash-commands");
+        const nextSlashCommands = await fetchJson<{ items: SlashCommandItem[] }>("/slash-commands");
         setSlashCommands(nextSlashCommands.items);
       } else if (page === "packages") {
         const [nextPackages, nextServers] = await Promise.all([
-          fetchJson<{ items: PackageItem[] }>("/api/packages"),
-          fetchJson<{ items: ServerItem[] }>("/api/servers")
+          fetchJson<{ items: PackageItem[] }>("/packages"),
+          fetchJson<{ items: ServerItem[] }>("/servers")
         ]);
         setPackages(nextPackages.items);
         setServers(nextServers.items);
       } else if (page === "files") {
         const [nextFiles, nextServers] = await Promise.all([
-          fetchJson<{ items: FileItem[] }>("/api/files"),
-          fetchJson<{ items: ServerItem[] }>("/api/servers")
+          fetchJson<{ items: FileItem[] }>("/files"),
+          fetchJson<{ items: ServerItem[] }>("/servers")
         ]);
         setFiles(nextFiles.items);
         setServers(nextServers.items);
       } else if (page === "tenants") {
-        setTenantSummary(await fetchJson<TenantSummary>("/api/tenants/summary"));
+        setTenantSummary(await fetchJson<TenantSummary>("/tenants/summary"));
       } else if (page === "approvals") {
-        setApprovalSummary(await fetchJson<ApprovalSummary>("/api/approvals"));
+        setApprovalSummary(await fetchJson<ApprovalSummary>("/approvals"));
       } else if (page === "models") {
-        setModelSummary(await fetchJson<ModelSummary>("/api/models"));
+        setModelSummary(await fetchJson<ModelSummary>("/models"));
       } else if (page === "members") {
-        setMemberSummary(await fetchJson<MemberSummary>("/api/members"));
+        setMemberSummary(await fetchJson<MemberSummary>("/members"));
       } else if (page === "teams") {
-        setTeamSummary(await fetchJson<TeamSummary>("/api/teams/summary"));
+        setTeamSummary(await fetchJson<TeamSummary>("/teams/summary"));
       } else if (page === "roles") {
-        setRoleSummary(await fetchJson<RoleSummary>("/api/roles/summary"));
+        setRoleSummary(await fetchJson<RoleSummary>("/roles/summary"));
       }
     } catch (error) {
       if (error instanceof Error && error.message === "Unauthorized") {
@@ -755,22 +775,26 @@ export function App() {
         setLoadingServers(false);
       }
     }
-  }
+  }, []);
 
   useEffect(() => {
     if (!authUser) return;
     void loadPageData(activePage);
-  }, [activePage, authUser]);
+  }, [activePage, authUser, loadPageData]);
 
   useEffect(() => {
     if (!authUser) return;
     const interval = setInterval(() => {
       if (activePage === "dashboard" || activePage === "servers" || activePage === "alerts") {
-        loadServers().catch(() => {});
+        loadServers().catch((err) => {
+          console.error('Failed to refresh servers:', err);
+        });
         if (activePage === "alerts") {
-          fetchJson<{ items: AlertItem[] }>("/api/alerts")
+          fetchJson<{ items: AlertItem[] }>("/alerts")
             .then((data) => setAlerts(data.items))
-            .catch(() => {});
+            .catch((err) => {
+              console.error('Failed to refresh alerts:', err);
+            });
         }
       }
     }, 30_000);
@@ -800,7 +824,7 @@ export function App() {
     setMessage("");
     setLoadingChat(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/chatops/stream`, {
+      const response = await fetch(`${API_BASE_URL}/chatops/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ message: input })
@@ -1340,21 +1364,21 @@ function Alerts({
 }
 
 function Scripts({ scripts, servers }: { scripts: ScriptItem[]; servers: ServerItem[] }) {
-  const [selectedScriptId, setSelectedScriptId] = useState<string | null>(scripts[0]?.id ?? null);
+  const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ScriptDetailData | null>(null);
-  const [targetId, setTargetId] = useState<string>(servers[0]?.id ?? "");
+  const [targetId, setTargetId] = useState<string>("");
   const [runResult, setRunResult] = useState<ScriptRunResult | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
-    if (!selectedScriptId && scripts.length > 0) {
+    if (selectedScriptId === null && scripts.length > 0) {
       setSelectedScriptId(scripts[0].id);
     }
   }, [scripts, selectedScriptId]);
 
   useEffect(() => {
-    if (!targetId && servers.length > 0) {
+    if (targetId === "" && servers.length > 0) {
       setTargetId(servers[0].id);
     }
   }, [servers, targetId]);
@@ -1523,13 +1547,13 @@ function Scripts({ scripts, servers }: { scripts: ScriptItem[]; servers: ServerI
 }
 
 function Commands({ commands }: { commands: SlashCommandItem[] }) {
-  const [selectedCommand, setSelectedCommand] = useState<SlashCommandItem | null>(commands[0] ?? null);
-  const [draft, setDraft] = useState(commands[0]?.example ?? "");
+  const [selectedCommand, setSelectedCommand] = useState<SlashCommandItem | null>(null);
+  const [draft, setDraft] = useState("");
   const [response, setResponse] = useState<ChatResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!selectedCommand && commands.length > 0) {
+    if (selectedCommand === null && commands.length > 0) {
       setSelectedCommand(commands[0]);
       setDraft(commands[0].example);
     }
@@ -1644,13 +1668,13 @@ function Commands({ commands }: { commands: SlashCommandItem[] }) {
 }
 
 function Packages({ packages, servers }: { packages: PackageItem[]; servers: ServerItem[] }) {
-  const [selectedPackage, setSelectedPackage] = useState<PackageItem | null>(packages[0] ?? null);
-  const [targetId, setTargetId] = useState(servers[0]?.id ?? "");
+  const [selectedPackage, setSelectedPackage] = useState<PackageItem | null>(null);
+  const [targetId, setTargetId] = useState<string>("");
   const [plan, setPlan] = useState<PackageDeployPlan | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
 
   useEffect(() => {
-    if (!selectedPackage && packages.length > 0) {
+    if (selectedPackage === null && packages.length > 0) {
       setSelectedPackage(packages[0]);
     }
   }, [packages, selectedPackage]);
@@ -1789,20 +1813,20 @@ function Packages({ packages, servers }: { packages: PackageItem[]; servers: Ser
 }
 
 function Files({ files, servers }: { files: FileItem[]; servers: ServerItem[] }) {
-  const [selectedFile, setSelectedFile] = useState<FileItem | null>(files[0] ?? null);
-  const [targetId, setTargetId] = useState(servers[0]?.id ?? "");
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [targetId, setTargetId] = useState<string>("");
   const [mode, setMode] = useState("push");
   const [plan, setPlan] = useState<FileTransferPlan | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
 
   useEffect(() => {
-    if (!selectedFile && files.length > 0) {
+    if (selectedFile === null && files.length > 0) {
       setSelectedFile(files[0]);
     }
   }, [files, selectedFile]);
 
   useEffect(() => {
-    if (!targetId && servers.length > 0) {
+    if (targetId === "" && servers.length > 0) {
       setTargetId(servers[0].id);
     }
   }, [servers, targetId]);
@@ -1813,7 +1837,7 @@ function Files({ files, servers }: { files: FileItem[]; servers: ServerItem[] })
     }
     setLoadingPlan(true);
     try {
-      setPlan(await postJson<FileTransferPlan>(`/api/files/${selectedFile.id}/transfer-plan`, { targetId, mode }));
+      setPlan(await postJson<FileTransferPlan>(`/files/${selectedFile.id}/transfer-plan`, { targetId, mode }));
     } finally {
       setLoadingPlan(false);
     }
@@ -2024,7 +2048,7 @@ function Approvals({ summary }: { summary: ApprovalSummary | null }) {
 
     setSubmitting(true);
     try {
-      const reviewedTicket = await postJson<ApprovalItem>(`/api/approvals/${selectedTicket.id}/action`, {
+      const reviewedTicket = await postJson<ApprovalItem>(`/approvals/${selectedTicket.id}/action`, {
         action,
         comment
       });
@@ -2167,7 +2191,7 @@ function Members({ summary }: { summary: MemberSummary | null }) {
   async function toggleMember(memberId: string) {
     setSubmittingId(memberId);
     try {
-      const updated = await postJson<MemberItem>(`/api/members/${memberId}/toggle`, {});
+      const updated = await postJson<MemberItem>(`/members/${memberId}/toggle`, {});
       setMembers((current) => current.map((member) => (member.id === updated.id ? updated : member)));
     } finally {
       setSubmittingId(null);
@@ -2177,7 +2201,7 @@ function Members({ summary }: { summary: MemberSummary | null }) {
   async function changeRole(memberId: string, role: string) {
     setSubmittingId(memberId);
     try {
-      const updated = await postJson<MemberItem>(`/api/members/${memberId}/role`, { role });
+      const updated = await postJson<MemberItem>(`/members/${memberId}/role`, { role });
       setMembers((current) => current.map((member) => (member.id === updated.id ? updated : member)));
     } finally {
       setSubmittingId(null);
@@ -2308,7 +2332,7 @@ function Teams({ summary }: { summary: TeamSummary | null }) {
   async function toggleTeam(teamId: string) {
     setSubmittingId(teamId);
     try {
-      const updated = await postJson<TeamItem>(`/api/teams/${teamId}/toggle`, {});
+      const updated = await postJson<TeamItem>(`/teams/${teamId}/toggle`, {});
       setTeams((current) => current.map((team) => (team.id === updated.id ? updated : team)));
     } finally {
       setSubmittingId(null);
@@ -2442,7 +2466,7 @@ function Roles({ summary }: { summary: RoleSummary | null }) {
   async function toggleRole(roleId: string) {
     setSubmittingId(roleId);
     try {
-      const updated = await postJson<RoleItem>(`/api/roles/${roleId}/toggle`, {});
+      const updated = await postJson<RoleItem>(`/roles/${roleId}/toggle`, {});
       setRoles((current) => current.map((role) => (role.id === updated.id ? updated : role)));
     } finally {
       setSubmittingId(null);
@@ -2452,7 +2476,7 @@ function Roles({ summary }: { summary: RoleSummary | null }) {
   async function togglePermission(roleId: string, permission: string) {
     setSubmittingId(`${roleId}:${permission}`);
     try {
-      const updated = await postJson<RoleItem>(`/api/roles/${roleId}/permission`, { permission });
+      const updated = await postJson<RoleItem>(`/roles/${roleId}/permission`, { permission });
       setRoles((current) => current.map((role) => (role.id === updated.id ? updated : role)));
     } finally {
       setSubmittingId(null);
@@ -2982,6 +3006,7 @@ function ChatOps({
   alerts: AlertItem[];
 }) {
   const [recentTasks, setRecentTasks] = useState<TimelineTask[]>([]);
+  const [drawerOpen, setDrawerOpen] = useState(true);
   const toast = useToast();
 
   useEffect(() => {
@@ -2997,7 +3022,7 @@ function ChatOps({
   const onlineAssets = servers.filter(s => s.agentStatus === "online");
 
   return (
-    <section className="chat-layout">
+    <section className={`chat-layout ${drawerOpen ? "drawer-open" : ""}`}>
       <div className="chat-panel">
         {/* 顶部工具栏 — Notion 风格极简 */}
         <div className="chat-topbar">
@@ -3014,7 +3039,7 @@ function ChatOps({
           </div>
           <div className="chat-topbar-right">
             <button className="chat-icon-btn" type="button" aria-label="搜索"><Search size={16} /></button>
-            <button className="chat-icon-btn active" type="button" aria-label="任务记录"><PanelRight size={16} /></button>
+            <button className={`chat-icon-btn ${drawerOpen ? "active" : ""}`} type="button" aria-label="任务记录" onClick={() => setDrawerOpen(!drawerOpen)}><PanelRight size={16} /></button>
             <button className="chat-icon-btn" type="button" aria-label="设置"><Settings size={16} /></button>
           </div>
         </div>
@@ -3110,57 +3135,59 @@ function ChatOps({
       </div>
 
       {/* 右侧抽屉 — 任务记录 + 资产 */}
-      <aside className="chat-drawer">
-        <div className="drawer-header">
-          <span className="drawer-title">任务记录</span>
-          <button className="chat-icon-btn" type="button" aria-label="关闭"><X size={15} /></button>
-        </div>
-        <div className="drawer-body">
-          {/* 进行中 */}
-          <div className="drawer-section">进行中</div>
-          {activeTasks.length === 0 && <div className="drawer-empty">暂无进行中的任务</div>}
-          {activeTasks.map((task) => (
-            <div className="task-item" key={task.id}>
-              <div className="task-top">
-                <span className="task-name">{task.taskType}</span>
-                <span className={`task-badge ${task.riskLevel === "high" ? "tb-hi" : task.riskLevel === "medium" ? "tb-mid" : "tb-lo"}`}>
-                  {task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}
-                </span>
+      {drawerOpen && (
+        <aside className="chat-drawer">
+          <div className="drawer-header">
+            <span className="drawer-title">任务记录</span>
+            <button className="chat-icon-btn" type="button" aria-label="关闭" onClick={() => setDrawerOpen(false)}><X size={15} /></button>
+          </div>
+          <div className="drawer-body">
+            {/* 进行中 */}
+            <div className="drawer-section">进行中</div>
+            {activeTasks.length === 0 && <div className="drawer-empty">暂无进行中的任务</div>}
+            {activeTasks.map((task) => (
+              <div className="task-item" key={task.id}>
+                <div className="task-top">
+                  <span className="task-name">{task.taskType}</span>
+                  <span className={`task-badge ${task.riskLevel === "high" ? "tb-hi" : task.riskLevel === "medium" ? "tb-mid" : "tb-lo"}`}>
+                    {task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}
+                  </span>
+                </div>
+                <div className="task-desc">{task.summary}</div>
+                <div className="task-time">{formatRelativeTime(task.createdAt)} · {taskStatusLabel(task.status)}</div>
               </div>
-              <div className="task-desc">{task.summary}</div>
-              <div className="task-time">{formatRelativeTime(task.createdAt)} · {taskStatusLabel(task.status)}</div>
-            </div>
-          ))}
+            ))}
 
-          {/* 历史 */}
-          <div className="drawer-section" style={{ marginTop: 8 }}>历史</div>
-          {historyTasks.length === 0 && <div className="drawer-empty">暂无历史任务</div>}
-          {historyTasks.slice(0, 5).map((task) => (
-            <div className="task-item" key={task.id}>
-              <div className="task-top">
-                <span className="task-name">{task.taskType}</span>
-                <span className={`task-badge ${task.riskLevel === "high" ? "tb-hi" : task.riskLevel === "medium" ? "tb-mid" : "tb-lo"}`}>
-                  {task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}
-                </span>
+            {/* 历史 */}
+            <div className="drawer-section" style={{ marginTop: 8 }}>历史</div>
+            {historyTasks.length === 0 && <div className="drawer-empty">暂无历史任务</div>}
+            {historyTasks.slice(0, 5).map((task) => (
+              <div className="task-item" key={task.id}>
+                <div className="task-top">
+                  <span className="task-name">{task.taskType}</span>
+                  <span className={`task-badge ${task.riskLevel === "high" ? "tb-hi" : task.riskLevel === "medium" ? "tb-mid" : "tb-lo"}`}>
+                    {task.riskLevel === "high" ? "高" : task.riskLevel === "medium" ? "中" : "低"}
+                  </span>
+                </div>
+                <div className="task-desc">{task.summary}</div>
+                <div className="task-time">{formatRelativeTime(task.createdAt)} · {taskStatusLabel(task.status)}</div>
               </div>
-              <div className="task-desc">{task.summary}</div>
-              <div className="task-time">{formatRelativeTime(task.createdAt)} · {taskStatusLabel(task.status)}</div>
-            </div>
-          ))}
+            ))}
 
-          {/* 在线资产 */}
-          <div className="drawer-section" style={{ marginTop: 8 }}>在线资产</div>
-          {onlineAssets.map((s) => (
-            <div className="asset-row" key={s.id}>
-              <span className="dot-ok" />
-              <div>
-                <div className="asset-name">{s.hostname}</div>
-                <div className="asset-ip">{s.ip}</div>
+            {/* 在线资产 */}
+            <div className="drawer-section" style={{ marginTop: 8 }}>在线资产</div>
+            {onlineAssets.map((s) => (
+              <div className="asset-row" key={s.id}>
+                <span className="dot-ok" />
+                <div>
+                  <div className="asset-name">{s.hostname}</div>
+                  <div className="asset-ip">{s.ip}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </aside>
+            ))}
+          </div>
+        </aside>
+      )}
     </section>
   );
 }

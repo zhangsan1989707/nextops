@@ -70,7 +70,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, Math.max(0, filtered.length - 1)));
         return;
       }
       if (e.key === "ArrowUp") {

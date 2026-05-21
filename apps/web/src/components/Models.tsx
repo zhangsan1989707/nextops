@@ -116,18 +116,52 @@ function formatLatency(ms: number) {
 }
 
 // API helpers
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+
 function getAuthHeaders(): Record<string, string> {
-  const token = localStorage.getItem("nextops_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  try {
+    const token = localStorage.getItem("nextops_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${path}`, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ message: undefined }));
+    throw new Error((errorBody as { message?: string })?.message ?? `Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ message: undefined }));
+    throw new Error((errorBody as { message?: string })?.message ?? `Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: getAuthHeaders()
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ message: undefined }));
+    throw new Error((errorBody as { message?: string })?.message ?? `Request failed: ${response.status}`);
+  }
   return response.json() as Promise<T>;
 }
 
@@ -271,7 +305,7 @@ export default function Models({ summary }: ModelsProps) {
   async function setDefault(modelId: string) {
     setSubmittingId(modelId);
     try {
-      const updated = await postJson<ModelItem>(`/api/models/${modelId}/default`, {});
+      const updated = await postJson<ModelItem>(`/models/${modelId}/default`, {});
       setModels(current => current.map(m => ({ ...m, isDefault: m.id === updated.id })));
       setSelectedModel(updated);
     } finally {
@@ -282,7 +316,7 @@ export default function Models({ summary }: ModelsProps) {
   async function toggleModel(modelId: string) {
     setSubmittingId(modelId);
     try {
-      const updated = await postJson<ModelItem>(`/api/models/${modelId}/toggle`, {});
+      const updated = await postJson<ModelItem>(`/models/${modelId}/toggle`, {});
       setModels(current => {
         const next = current.map(m => m.id === updated.id ? updated : m);
         if (!next.some(m => m.isDefault) && next.some(m => m.status === "enabled")) {
@@ -303,7 +337,7 @@ export default function Models({ summary }: ModelsProps) {
     setSubmittingId(modelId);
     setTestResult(null);
     try {
-      const result = await postJson<ModelTestResult>(`/api/models/${modelId}/test`, {});
+      const result = await postJson<ModelTestResult>(`/models/${modelId}/test`, {});
       setTestResult(result);
     } finally {
       setSubmittingId(null);
@@ -314,11 +348,7 @@ export default function Models({ summary }: ModelsProps) {
     if (!confirm("确定要删除该模型吗？")) return;
     setSubmittingId(modelId);
     try {
-      const res = await fetch(`/api/models/${modelId}`, {
-        method: "DELETE",
-        headers: getAuthHeaders()
-      });
-      if (!res.ok) throw new Error(`删除失败: ${res.status}`);
+      await deleteJson<ModelItem>(`/models/${modelId}`);
       setModels(current => {
         const next = current.filter(m => m.id !== modelId);
         if (selectedModel?.id === modelId) {
@@ -365,13 +395,7 @@ export default function Models({ summary }: ModelsProps) {
         costLevel: editDraft.costLevel
       };
       if (editDraft.apiKey) body.apiKey = editDraft.apiKey;
-      const res = await fetch(`/api/models/${editingModel.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-      const updatedModel = await res.json() as ModelItem;
+      const updatedModel = await putJson<ModelItem>(`/models/${editingModel.id}`, body);
       setModels(current => current.map(m => m.id === updatedModel.id ? updatedModel : m));
       setSelectedModel(updatedModel);
       setEditingModel(null);
@@ -398,7 +422,7 @@ export default function Models({ summary }: ModelsProps) {
     event.preventDefault();
     setSavingModel(true);
     try {
-      const created = await postJson<ModelItem>("/api/models", {
+      const created = await postJson<ModelItem>("/models", {
         ...modelDraft,
         capabilities: modelDraft.provider.includes("Local")
           ? ["内网知识问答", "脚本生成", "日志诊断"]

@@ -11,6 +11,25 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
+function reportError(error: Error, info: ErrorInfo) {
+  console.error("[ErrorBoundary]", error, info.componentStack);
+  
+  if (typeof window !== "undefined" && window.navigator.sendBeacon) {
+    try {
+      const errorData = {
+        message: error.message,
+        stack: error.stack,
+        componentStack: info.componentStack,
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+      };
+      window.navigator.sendBeacon("/api/errors", JSON.stringify(errorData));
+    } catch {
+      console.error("Failed to report error to server");
+    }
+  }
+}
+
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
@@ -22,11 +41,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[ErrorBoundary]", error, info.componentStack);
+    reportError(error, info);
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.children !== this.props.children) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   handleReset = () => {
     this.setState({ hasError: false, error: null });
+    window.location.reload();
   };
 
   render() {
@@ -48,7 +74,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               type="button"
             >
               <RotateCcw size={14} />
-              重试
+              刷新重试
             </button>
           </div>
         </div>

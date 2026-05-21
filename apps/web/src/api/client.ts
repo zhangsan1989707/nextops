@@ -1,15 +1,27 @@
 const BASE_URL = "/api";
 
 function getToken(): string | null {
-  return localStorage.getItem("nextops-token");
+  try {
+    return localStorage.getItem("nextops_token");
+  } catch {
+    return null;
+  }
 }
 
 export function setToken(token: string) {
-  localStorage.setItem("nextops-token", token);
+  try {
+    localStorage.setItem("nextops_token", token);
+  } catch {
+    console.error('Failed to set token in localStorage');
+  }
 }
 
 export function clearToken() {
-  localStorage.removeItem("nextops-token");
+  try {
+    localStorage.removeItem("nextops_token");
+  } catch {
+    console.error('Failed to clear token from localStorage');
+  }
 }
 
 async function apiCall<T = unknown>(
