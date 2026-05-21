@@ -3388,7 +3388,7 @@ select {
 .line-chart {
   width: 100%;
   height: auto;
-  max-height: 220px;
+  max-height: 320px;
   display: block;
 }
 
@@ -3398,15 +3398,15 @@ select {
 }
 
 .chart-label {
-  fill: #8a97ab;
-  font-size: 10px;
+  fill: #6b7280;
+  font-size: 13px;
   font-family: inherit;
 }
 
 .chart-line-cpu {
   fill: none;
   stroke: #1f6feb;
-  stroke-width: 2;
+  stroke-width: 3;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -3414,7 +3414,7 @@ select {
 .chart-line-mem {
   fill: none;
   stroke: #33c3a5;
-  stroke-width: 2;
+  stroke-width: 3;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -4503,7 +4503,7 @@ select {
 }
 
 .threshold-label {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
 }
 
