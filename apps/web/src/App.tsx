@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Layout } from "./components/layout/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { ChatOps } from "./pages/ChatOps";
@@ -24,38 +24,38 @@ function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      const [serversRes, alertsRes] = await Promise.all([
-        serverApi.getAll(),
-        alertApi.getAll(),
-      ]);
-      
-      if (serversRes.success && serversRes.data) {
-        setServers(serversRes.data.items);
-      }
-      if (alertsRes.success && alertsRes.data) {
-        setAlerts(alertsRes.data.items);
-      }
-      setLoading(false);
-    }
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const [serversRes, alertsRes] = await Promise.all([
+      serverApi.getAll(),
+      alertApi.getAll(),
+    ]);
     
+    if (serversRes.success && serversRes.data) {
+      setServers(serversRes.data.items);
+    }
+    if (alertsRes.success && alertsRes.data) {
+      setAlerts(alertsRes.data.items);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadData]);
 
   const renderPage = () => {
     switch (currentPath) {
       case "/":
-        return <Dashboard />;
+        return <Dashboard onNavigate={setCurrentPath} />;
       case "/chatops":
         return <ChatOps servers={servers} alerts={alerts} />;
       case "/alerts":
         return <Alerts servers={servers} onOpenServer={(id) => setCurrentPath(`/servers/${id}`)} />;
       case "/servers":
-        return <Servers servers={servers} />;
+        return <Servers servers={servers} onRefresh={loadData} />;
       case "/scripts":
         return <Scripts />;
       case "/commands":

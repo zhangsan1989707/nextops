@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Activity,
   AlertTriangle,
   Bot,
   CheckCircle2,
   Clock,
+  RefreshCw,
   Server,
   ShieldCheck,
   Sparkles,
@@ -13,6 +14,12 @@ import {
 } from "lucide-react";
 import { fetchDashboard } from "../../api/client";
 import type { DashboardData } from "../../api/client";
+import { useToast } from "../../components/common/Toast";
+
+interface DashboardProps {
+  onNavigate?: (path: string) => void;
+  onRefresh?: () => void;
+}
 
 function severityColor(s: string): string {
   switch (s) {
@@ -30,32 +37,73 @@ function healthGrade(score: number): { label: string; className: string } {
   return { label: "需关注", className: "" };
 }
 
-export function Dashboard() {
+export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const toast = useToast();
+
+  const loadDashboard = useCallback(async (showRefreshToast = false) => {
+    try {
+      setError(null);
+      const result = await fetchDashboard();
+      setData(result);
+      if (showRefreshToast) {
+        toast.success("数据已刷新");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "加载失败";
+      setError(message);
+      toast.error(`加载失败: ${message}`);
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
     loadDashboard();
-    const interval = setInterval(loadDashboard, 30000);
+    const interval = setInterval(() => loadDashboard(false), 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadDashboard]);
 
-  async function loadDashboard() {
-    try {
-      const result = await fetchDashboard();
-      setData(result);
-    } catch {
-      console.error("Failed to load dashboard data");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    loadDashboard(true);
+    onRefresh?.();
+  }, [loadDashboard, onRefresh]);
+
+  const handleViewDetails = useCallback(() => {
+    toast.info("正在跳转到告警详情...");
+    onNavigate?.("/alerts");
+  }, [onNavigate, toast]);
+
+  const handleAIDiagnosis = useCallback(() => {
+    toast.info("正在跳转到 AI Copilot...");
+    onNavigate?.("/chatops");
+  }, [onNavigate, toast]);
 
   if (loading) {
     return (
       <div className="loading-container">
         <div className="loading-spinner" />
         <span>加载驾驶舱数据...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="content-grid">
+        <section className="panel" style={{ gridColumn: "1 / -1", textAlign: "center", padding: "60px 20px" }}>
+          <AlertTriangle size={48} style={{ color: "var(--color-critical)", marginBottom: "16px" }} />
+          <h2 style={{ marginBottom: "12px" }}>加载失败</h2>
+          <p style={{ color: "var(--text-muted)", marginBottom: "24px" }}>{error}</p>
+          <button className="primary-button" onClick={() => loadDashboard(true)} type="button">
+            <RefreshCw size={16} /> 重试
+          </button>
+        </section>
       </div>
     );
   }
@@ -90,10 +138,10 @@ export function Dashboard() {
           <p>系统健康度 {healthScore} 分，{criticalAlerts > 0 ? `存在 ${criticalAlerts} 个严重告警需处理` : "当前运行稳定"}</p>
         </div>
         <div className="ai-actions">
-          <button className="primary-button" type="button">
+          <button className="primary-button" type="button" onClick={handleViewDetails}>
             <TrendingUp size={16} /> 查看详情
           </button>
-          <button className="secondary-button" type="button">
+          <button className="secondary-button" type="button" onClick={handleAIDiagnosis}>
             <Bot size={16} /> AI 分析
           </button>
         </div>

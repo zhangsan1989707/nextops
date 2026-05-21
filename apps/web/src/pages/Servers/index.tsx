@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Activity,
   Cloud,
@@ -13,16 +13,30 @@ import {
   Zap,
 } from "lucide-react";
 import type { Server as ServerType } from "../../api";
+import { useToast } from "../../components/common/Toast";
 
 interface ServersProps {
   servers: ServerType[];
+  onRefresh?: () => void;
 }
 
-export function Servers({ servers }: ServersProps) {
+export function Servers({ servers, onRefresh }: ServersProps) {
   const [filterEnv, setFilterEnv] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedServer, setSelectedServer] = useState<ServerType | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const toast = useToast();
+
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    toast.info("正在刷新服务器列表...");
+    onRefresh?.();
+    setTimeout(() => {
+      setIsRefreshing(false);
+      toast.success("服务器列表已刷新");
+    }, 500);
+  }, [onRefresh, toast]);
 
   const environments = [...new Set(servers.map(s => s.environment))];
   const filtered = servers.filter(server => {
@@ -44,8 +58,8 @@ export function Servers({ servers }: ServersProps) {
           <p>管理和监控所有服务器资源</p>
         </div>
         <div className="header-actions">
-          <button className="secondary-button" type="button">
-            <RefreshCw size={16} /> 刷新
+          <button className="secondary-button" type="button" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw size={16} className={isRefreshing ? "spinning" : ""} /> 刷新
           </button>
           <button className="primary-button" type="button">
             <Plus size={16} /> 添加服务器
