@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getScripts, getScript, getServers, createAuditLog, createTaskRecord } from "../db.js";
-import { asyncHandler, getActor, scriptContent, scriptDescription, scriptParameters } from "../utils/helpers.js";
+import { asyncHandler, getActor } from "../utils/helpers.js";
 
 const router = Router();
 
@@ -48,9 +48,7 @@ function detectDangerousCommands(scriptContent: string, scriptType: string): Dan
 router.get("/", asyncHandler(async (_req, res) => {
   const scripts = await getScripts();
   const items = scripts.map((script) => ({
-    ...script,
-    description: scriptDescription(script.id),
-    parameters: scriptParameters(script.id)
+    ...script
   }));
   res.json({ items });
 }));
@@ -61,10 +59,7 @@ router.get("/:id", asyncHandler(async (req, res) => {
     res.status(404).json({ message: "Script not found" });
     return;
   }
-  const content = scriptContent(script.id);
-  const description = scriptDescription(script.id);
-  const parameters = scriptParameters(script.id);
-  res.json({ ...script, content, description, parameters });
+  res.json(script);
 }));
 
 router.post("/:id/validate", asyncHandler(async (req, res) => {
@@ -73,8 +68,7 @@ router.post("/:id/validate", asyncHandler(async (req, res) => {
     res.status(404).json({ message: "Script not found" });
     return;
   }
-  const content = scriptContent(script.id);
-  const { isSafe, warnings } = detectDangerousCommands(content, script.type);
+  const { isSafe, warnings } = detectDangerousCommands(script.content, script.type);
   const rollbackRequired = script.type === "shell" && !isSafe;
   res.json({ isSafe, warnings, rollbackRequired });
 }));
@@ -86,8 +80,7 @@ router.post("/:id/run", asyncHandler(async (req, res) => {
     return;
   }
 
-  const content = scriptContent(script.id);
-  const { isSafe, warnings } = detectDangerousCommands(content, script.type);
+  const { isSafe, warnings } = detectDangerousCommands(script.content, script.type);
 
   if (!isSafe) {
     res.status(400).json({

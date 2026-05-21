@@ -41,7 +41,10 @@ const context: ChatOpsContext = {
       type: "inspection",
       riskLevel: "low",
       version: "1.0.0",
-      successRate: 98
+      successRate: 98,
+      content: "#!/usr/bin/env bash\nset -euo pipefail\nuptime\ndf -h",
+      description: "基础巡检脚本",
+      parameters: []
     }
   ]
 };

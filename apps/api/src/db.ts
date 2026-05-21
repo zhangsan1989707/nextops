@@ -92,6 +92,9 @@ export type ScriptRecord = {
   riskLevel: string;
   version: string;
   successRate: number;
+  content: string;
+  description: string;
+  parameters: Array<{ name: string; required: boolean; defaultValue: string }>;
 };
 
 export type AiModelRecord = {
@@ -272,14 +275,20 @@ const demoServers: ServerRecord[] = [];
 
 const demoAlerts: AlertRecord[] = [];
 
-const demoScripts: ScriptRecord[] = [
+const demoScripts: Array<Omit<ScriptRecord, "parameters"> & { parameters: unknown }> = [
   {
     id: "scr-001",
     name: "Linux 基础巡检",
     type: "shell",
     riskLevel: "low",
     version: "1.0.0",
-    successRate: 98
+    successRate: 98,
+    content: "#!/usr/bin/env bash\nset -euo pipefail\nuptime\ndf -h\nfree -m\nps aux --sort=-%cpu | head -10",
+    description: "采集 Linux 主机 CPU、内存、磁盘、负载、端口和基础服务状态，适合低风险巡检。",
+    parameters: [
+      { name: "items", required: false, defaultValue: "cpu,memory,disk,load" },
+      { name: "timeout", required: false, defaultValue: "30s" }
+    ]
   },
   {
     id: "scr-002",
@@ -287,7 +296,13 @@ const demoScripts: ScriptRecord[] = [
     type: "shell",
     riskLevel: "medium",
     version: "1.1.0",
-    successRate: 94
+    successRate: 94,
+    content: "#!/usr/bin/env bash\nset -euo pipefail\nnginx -t\nsystemctl reload nginx\nsystemctl status nginx --no-pager",
+    description: "对 Nginx 配置执行语法检查，通过后 reload 服务。生产环境需要审批。",
+    parameters: [
+      { name: "service", required: true, defaultValue: "nginx" },
+      { name: "validate_config", required: false, defaultValue: "true" }
+    ]
   },
   {
     id: "scr-003",
@@ -295,7 +310,13 @@ const demoScripts: ScriptRecord[] = [
     type: "sql",
     riskLevel: "low",
     version: "0.3.0",
-    successRate: 100
+    successRate: 100,
+    content: "select state, count(*) from pg_stat_activity group by state;\nselect pid, wait_event, query from pg_stat_activity where state = 'active' limit 10;",
+    description: "查询 PostgreSQL 当前连接数、活跃会话和等待事件，用于数据库连接数异常诊断。",
+    parameters: [
+      { name: "database", required: true, defaultValue: "postgres" },
+      { name: "min_duration", required: false, defaultValue: "30s" }
+    ]
   }
 ];
 
@@ -688,8 +709,19 @@ const migrations = [
         type text not null,
         risk_level text not null,
         version text not null,
-        success_rate integer not null default 0
+        success_rate integer not null default 0,
+        content text not null default '',
+        description text not null default '',
+        parameters jsonb not null default '[]'
       );
+    `
+  },
+  {
+    id: "0011_scripts_content_fields",
+    sql: `
+      alter table scripts add column if not exists content text not null default '';
+      alter table scripts add column if not exists description text not null default '';
+      alter table scripts add column if not exists parameters jsonb not null default '[]';
     `
   },
   {
@@ -1081,9 +1113,9 @@ async function seedDemoAssets() {
   if (Number(scriptCount.rows[0]?.count ?? 0) === 0) {
     for (const s of demoScripts) {
       await pool.query(
-        `insert into scripts (id, name, type, risk_level, version, success_rate)
-         values ($1,$2,$3,$4,$5,$6) on conflict (id) do nothing`,
-        [s.id, s.name, s.type, s.riskLevel, s.version, s.successRate]
+        `insert into scripts (id, name, type, risk_level, version, success_rate, content, description, parameters)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (id) do nothing`,
+        [s.id, s.name, s.type, s.riskLevel, s.version, s.successRate, s.content, s.description, JSON.stringify(s.parameters)]
       );
     }
   }
@@ -1437,7 +1469,7 @@ export async function getAlert(id: string): Promise<AlertRecord | null> {
 
 export async function getScripts(): Promise<ScriptRecord[]> {
   const result = await pool.query(`
-    select id, name, type, risk_level, version, success_rate
+    select id, name, type, risk_level, version, success_rate, content, description, parameters
     from scripts
     order by id asc
   `);
@@ -1447,14 +1479,17 @@ export async function getScripts(): Promise<ScriptRecord[]> {
     type: row.type,
     riskLevel: row.risk_level,
     version: row.version,
-    successRate: row.success_rate
+    successRate: row.success_rate,
+    content: row.content,
+    description: row.description,
+    parameters: row.parameters
   }));
 }
 
 export async function getScript(id: string): Promise<ScriptRecord | null> {
   const result = await pool.query(
     `
-      select id, name, type, risk_level, version, success_rate
+      select id, name, type, risk_level, version, success_rate, content, description, parameters
       from scripts
       where id = $1
     `,
@@ -1470,7 +1505,10 @@ export async function getScript(id: string): Promise<ScriptRecord | null> {
     type: row.type,
     riskLevel: row.risk_level,
     version: row.version,
-    successRate: row.success_rate
+    successRate: row.success_rate,
+    content: row.content,
+    description: row.description,
+    parameters: row.parameters
   };
 }
 
