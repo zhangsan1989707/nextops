@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
-import { ToastProvider } from "./components/Toast";
+import App from "./App";
+import { ToastProvider } from "./components/common/Toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 import "./styles-upgrade.css";

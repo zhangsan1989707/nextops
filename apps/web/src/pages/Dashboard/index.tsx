@@ -39,23 +39,26 @@ export type ServerItem = {
   type: string;
 };
 
+import type { Server, Alert } from "../../api";
+
 interface DashboardProps {
-  summary: DashboardSummary | null;
-  servers: ServerItem[];
-  onQuickAction: (message: string) => void;
+  servers: Server[];
+  alerts: Alert[];
 }
 
-export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
+export function Dashboard({ servers, alerts }: DashboardProps) {
   const primaryServer = servers[0];
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [copilotMessage, setCopilotMessage] = useState("");
   const [copilotLoading, setCopilotLoading] = useState(false);
 
+  const handleQuickAction = (_action: string) => {};
+
   const aiStatus = useMemo(() => {
     const onlineServers = servers.filter(s => s.agentStatus === 'online').length;
     const totalServers = servers.length;
-    const criticalAlerts = summary?.alerts.critical ?? 0;
-    const openAlerts = summary?.alerts.open ?? 0;
+    const criticalAlerts = alerts.filter(a => a.severity === 'critical').length;
+    const openAlerts = alerts.filter(a => a.status === 'open').length;
     const avgCpu = servers.length > 0 
       ? Math.round(servers.reduce((sum, s) => sum + s.cpuUsage, 0) / servers.length)
       : 0;
@@ -90,7 +93,7 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
     }
 
     return { status, title, description, observations, avgCpu, criticalAlerts, openAlerts, onlineServers, totalServers };
-  }, [servers, summary]);
+  }, [servers, alerts]);
 
   const eventTimeline = useMemo(() => {
     const events = [];
@@ -117,7 +120,7 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
     events.push({
       time: new Date(now.getTime() - 15 * 60000).toISOString(),
       type: 'info',
-      event: `完成 ${summary?.automation.aiDiagnosesToday ?? 0} 次自动诊断`,
+      event: `完成 0 次自动诊断`,
       action: '系统健康检查完成'
     });
     
@@ -129,7 +132,7 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
     });
 
     return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-  }, [aiStatus, summary]);
+  }, [aiStatus]);
 
   const recommendedActions = useMemo(() => {
     const actions = [];
@@ -179,13 +182,13 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
     serversOnline: `${aiStatus.onlineServers}/${aiStatus.totalServers}`,
     criticalAlerts: aiStatus.criticalAlerts,
     openAlerts: aiStatus.openAlerts,
-    aiDiagnoses: summary?.automation.aiDiagnosesToday ?? 0,
+    aiDiagnoses: 0,
     avgCpu: aiStatus.avgCpu,
     avgMemory: servers.length > 0 
       ? Math.round(servers.reduce((sum, s) => sum + s.memoryUsage, 0) / servers.length)
       : 0,
-    agentOnline: summary?.servers.online ?? 0,
-  }), [aiStatus, servers, summary]);
+    agentOnline: aiStatus.onlineServers,
+  }), [aiStatus, servers]);
 
   return (
     <>
@@ -196,7 +199,7 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
         setMessage={setCopilotMessage}
         loading={copilotLoading}
         onSend={(msg) => {
-          onQuickAction(msg);
+          handleQuickAction(msg);
         }}
       />
 
@@ -217,13 +220,13 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
             </ul>
           </div>
           <div className="ai-actions">
-            <button className="primary-button" onClick={() => onQuickAction('执行系统巡检')}>
+            <button className="primary-button" onClick={() => handleQuickAction('执行系统巡检')}>
               <Gauge size={16} /> 查看分析
             </button>
-            <button className="secondary-button" onClick={() => onQuickAction('执行巡检')}>
+            <button className="secondary-button" onClick={() => handleQuickAction('执行巡检')}>
               <Bot size={16} /> 执行巡检
             </button>
-            <button className="secondary-button" onClick={() => onQuickAction('生成今日运维日报')}>
+            <button className="secondary-button" onClick={() => handleQuickAction('生成今日运维日报')}>
               <FileText size={16} /> 生成日报
             </button>
           </div>
@@ -270,28 +273,18 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
               <h2>性能趋势</h2>
             </div>
             <div className="trend-header">
-              {summary?.trends.length ? (
+              {servers.length > 0 && (
                 <>
-                  <span className="trend-current cpu">CPU {summary.trends[summary.trends.length - 1].cpu}%</span>
-                  <span className="trend-current mem">内存 {summary.trends[summary.trends.length - 1].memory}%</span>
+                  <span className="trend-current cpu">CPU {servers[0].cpuUsage}%</span>
+                  <span className="trend-current mem">内存 {servers[0].memoryUsage}%</span>
                 </>
-              ) : null}
+              )}
               <button className="text-button" type="button">
                 查看监控 <ChevronRight size={16} />
               </button>
             </div>
           </div>
-          {summary?.trends.length ? (
-            <>
-              <LineChart data={summary.trends} />
-              <div className="chart-legend">
-                <span className="legend-item"><span className="legend-cpu" />CPU</span>
-                <span className="legend-item"><span className="legend-mem" />内存</span>
-              </div>
-            </>
-          ) : (
-            <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>暂无趋势数据</div>
-          )}
+          <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>暂无趋势数据</div>
         </section>
 
         <section className="panel wide">
@@ -346,7 +339,7 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
               <button
                 key={i}
                 className={`action-card ${action.priority}`}
-                onClick={() => onQuickAction(action.action)}
+                onClick={() => handleQuickAction(action.action)}
               >
                 <action.icon size={20} />
                 <span>{action.label}</span>
@@ -372,7 +365,7 @@ export function Dashboard({ summary, servers, onQuickAction }: DashboardProps) {
                     <button
                       key={j}
                       className="ops-item-btn"
-                      onClick={() => onQuickAction(item.action)}
+                      onClick={() => handleQuickAction(item.action)}
                     >
                       <item.icon size={16} />
                       <span>{item.label}</span>

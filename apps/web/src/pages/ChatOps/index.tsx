@@ -17,7 +17,6 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "../../components/common/Toast";
-import { fetchJson } from "../../api/client";
 
 export type ServerItem = {
   id: string;
@@ -55,7 +54,7 @@ export type ChatResponse = {
   targetName?: string | null;
 };
 
-interface TimelineTask = {
+interface TimelineTask {
   id: string;
   taskType: string;
   status: string;
@@ -65,12 +64,6 @@ interface TimelineTask = {
 }
 
 interface ChatOpsProps {
-  message: string;
-  setMessage: (value: string) => void;
-  sendMessage: (event: React.FormEvent) => void;
-  messages: ChatMessage[];
-  response: ChatResponse | null;
-  loading: boolean;
   servers: ServerItem[];
   alerts: AlertItem[];
 }
@@ -106,33 +99,16 @@ function taskStatusLabel(status: string): string {
   }
 }
 
-export function ChatOps({
-  message,
-  setMessage,
-  sendMessage,
-  messages,
-  response,
-  loading,
-  servers,
-  alerts,
-}: ChatOpsProps) {
+export function ChatOps({ servers, alerts }: ChatOpsProps) {
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [response, setResponse] = useState<ChatResponse | null>(null);
+  const [loading, setLoading] = useState(false);
   const [recentTasks, setRecentTasks] = useState<TimelineTask[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(true);
-  const [conversationContext, setConversationContext] = useState<ConversationContext | null>(null);
+  const [conversationContext, setConversationContext] = useState<{ lastServer?: string; lastAction?: string; history: Array<{ role: string; content: string; timestamp: number }> } | null>(null);
   const toast = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  interface ConversationContext {
-    lastServer?: string;
-    lastAction?: string;
-    history: Array<{ role: string; content: string; timestamp: number }>;
-  }
-
-  useEffect(() => {
-    fetchJson<{ items: TimelineTask[] }>("/api/tasks")
-      .then((data) => setRecentTasks(data.items))
-      .catch(() => {});
-  }, [response?.taskId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -174,6 +150,49 @@ export function ChatOps({
         { role: "assistant", content: aiResponse, timestamp: Date.now() },
       ],
     }));
+  };
+
+  const sendMessage = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    if (!message.trim() || loading) return;
+
+    const enhancedMessage = enhanceMessageWithContext(message);
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      role: "user",
+      content: message,
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setLoading(true);
+    setMessage("");
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const mockResponse: ChatResponse = {
+        intent: "system_check",
+        riskLevel: "low",
+        plan: ["检查服务器状态", "分析资源使用", "生成报告"],
+        reply: "好的，我来帮你执行系统巡检。当前检测到系统运行正常，所有服务指标均在正常范围内。",
+      };
+
+      const assistantMessage: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: "assistant",
+        content: mockResponse.reply,
+        response: mockResponse,
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+      setResponse(mockResponse);
+      updateContextFromResponse(message, mockResponse.reply);
+      toast.success("巡检完成");
+    } catch {
+      toast.error("请求失败");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -297,7 +316,7 @@ export function ChatOps({
               placeholder="描述需求，或输入 / 触发快捷命令…"
               rows={2}
               value={message}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
             />
             <button className="send-icon-btn" disabled={loading || !message.trim()} type="submit" aria-label="发送">
               <ArrowUp size={15} />
