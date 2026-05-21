@@ -479,6 +479,14 @@ async function fetchJson<T>(path: string): Promise<T> {
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await response.text();
+    throw new Error(text?.includes("<!doctype") || text?.includes("<html")
+      ? `API 返回了 HTML 页面而非 JSON 数据，请检查后端服务是否正常运行（${path}）`
+      : `API 返回了非 JSON 数据（${path}）`
+    );
+  }
   return response.json() as Promise<T>;
 }
 
@@ -495,6 +503,14 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   }
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await response.text();
+    throw new Error(text?.includes("<!doctype") || text?.includes("<html")
+      ? `API 返回了 HTML 页面而非 JSON 数据，请检查后端服务是否正常运行（${path}）`
+      : `API 返回了非 JSON 数据（${path}）`
+    );
   }
   return response.json() as Promise<T>;
 }

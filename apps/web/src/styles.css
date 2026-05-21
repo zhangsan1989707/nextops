@@ -440,8 +440,10 @@ select {
 
 .nav-group-items {
   display: grid;
+  grid-template-rows: 0fr;
   overflow: hidden;
   transition: grid-template-rows 200ms ease, opacity 200ms ease;
+  opacity: 0;
 }
 
 .nav-group-items.expanded {
