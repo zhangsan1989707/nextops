@@ -103,6 +103,7 @@ function getStatusConfig(status: string, isDefault: boolean) {
 }
 
 function formatContextWindow(window: string) {
+  if (!window) return "未知";
   if (window.includes("k")) return window.toUpperCase();
   if (window.includes("m") || window.includes("M")) return window.toUpperCase();
   return window;
@@ -313,10 +314,11 @@ export default function Models({ summary }: ModelsProps) {
     if (!confirm("确定要删除该模型吗？")) return;
     setSubmittingId(modelId);
     try {
-      await fetch(`/api/models/${modelId}`, {
+      const res = await fetch(`/api/models/${modelId}`, {
         method: "DELETE",
         headers: getAuthHeaders()
       });
+      if (!res.ok) throw new Error(`删除失败: ${res.status}`);
       setModels(current => {
         const next = current.filter(m => m.id !== modelId);
         if (selectedModel?.id === modelId) {
@@ -324,6 +326,8 @@ export default function Models({ summary }: ModelsProps) {
         }
         return next;
       });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "删除失败");
     } finally {
       setSubmittingId(null);
     }
@@ -361,14 +365,12 @@ export default function Models({ summary }: ModelsProps) {
         costLevel: editDraft.costLevel
       };
       if (editDraft.apiKey) body.apiKey = editDraft.apiKey;
-      const updated = await postJson<ModelItem>(`/api/models/${editingModel.id}`, body);
-      // Use PUT for update
       const res = await fetch(`/api/models/${editingModel.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(body)
       });
-      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      if (!res.ok) throw new Error(`请求失败: ${res.status}`);
       const updatedModel = await res.json() as ModelItem;
       setModels(current => current.map(m => m.id === updatedModel.id ? updatedModel : m));
       setSelectedModel(updatedModel);

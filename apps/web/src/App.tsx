@@ -844,6 +844,15 @@ export function App() {
             );
           } else if (event.event === "done") {
             finalResponse = event.data as ChatResponse;
+          } else if (event.event === "error") {
+            const errData = event.data as { message?: string };
+            setChatMessages((current) =>
+              current.map((item) =>
+                item.id === assistantId
+                  ? { ...item, content: errData.message ?? "请求处理失败", streaming: false }
+                  : item
+              )
+            );
           }
         }
       }
@@ -857,6 +866,7 @@ export function App() {
         );
       }
     } catch (error) {
+      setChatResponse(null);
       setChatMessages((current) =>
         current.map((item) =>
           item.id === assistantId
@@ -3196,7 +3206,9 @@ function taskStageProgress(status: string, stage: number): string {
 }
 
 function formatRelativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const parsed = new Date(dateStr).getTime();
+  if (isNaN(parsed)) return "未知";
+  const diff = Date.now() - parsed;
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "刚刚";
   if (minutes < 60) return `${minutes} 分钟前`;
@@ -3453,6 +3465,7 @@ function Servers({
 function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => void }) {
   const [server, setServer] = useState<ServerDetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [installPlan, setInstallPlan] = useState<AgentInstallPlan | null>(null);
   const [diagnosis, setDiagnosis] = useState<DiagnosisReport | null>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
@@ -3463,8 +3476,10 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
 
   function loadServer(limit: number) {
     setLoading(true);
+    setLoadError(null);
     fetchJson<ServerDetailData>(`/api/servers/${serverId}?limit=${limit}`)
       .then(setServer)
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "加载失败"))
       .finally(() => setLoading(false));
   }
 
@@ -3507,6 +3522,19 @@ function ServerDetail({ serverId, onBack }: { serverId: string; onBack: () => vo
 
   if (loading) {
     return <section className="placeholder"><RefreshCw size={30} /><h2>正在加载资源详情</h2></section>;
+  }
+
+  if (loadError) {
+    return (
+      <section className="placeholder">
+        <Server size={30} />
+        <h2>无法加载资源</h2>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 8 }}>{loadError}</p>
+        <button className="btn btn-primary" onClick={() => loadServer(timeRange)} type="button" style={{ marginTop: 16 }}>
+          <RefreshCw size={14} /> 重试
+        </button>
+      </section>
+    );
   }
 
   if (!server) {
