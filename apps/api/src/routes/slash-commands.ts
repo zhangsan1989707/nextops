@@ -8,4 +8,9 @@ router.get("/", asyncHandler(async (_req, res) => {
   res.json({ items: await getSlashCommands() });
 }));
 
+router.get("/enabled", asyncHandler(async (_req, res) => {
+  const commands = await getSlashCommands();
+  res.json({ items: commands.filter((c: { enabled?: boolean }) => c.enabled !== false) });
+}));
+
 export default router;
