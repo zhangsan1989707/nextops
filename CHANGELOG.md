@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-22 (Nightly)
+
+### Added
+- **Dashboard quick action buttons**: 查看详情 and AI分析 buttons now functional with navigation
+- **Dashboard error state UI**: Shows friendly error message with retry button when loading fails
+- **Server list refresh**: Manual refresh button with loading animation and toast feedback
+- **Alert batch operations**: Checkbox selection, select all, batch acknowledge, batch resolve
+- Toast notifications for better UX feedback
+
+### Changed
+- Refactored `loadData` in App.tsx to use `useCallback` for proper scope
+- Refactored alert filtering to use `useCallback` for batch operations
+
+### Fixed
+- Dashboard buttons now functional (were previously non-interactive)
+
+---
+
 ## [0.2.0] - 2026-05-22
 
 ### Added
