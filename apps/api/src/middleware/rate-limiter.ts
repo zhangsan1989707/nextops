@@ -6,22 +6,50 @@ interface RateLimitEntry {
 }
 
 const store = new Map<string, RateLimitEntry>();
+const MAX_ENTRIES = 10000;
 
 const WINDOW_MS = 60_000;
-const MAX_REQUESTS = 2000;
+const MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 2000;
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store) {
-    if (entry.resetAt <= now) {
+function cleanupExpiredEntries(now: number) {
+  if (store.size >= MAX_ENTRIES) {
+    const entriesToDelete: string[] = [];
+    for (const [key, entry] of store) {
+      if (entry.resetAt <= now) {
+        entriesToDelete.push(key);
+      }
+    }
+    if (entriesToDelete.length < MAX_ENTRIES / 2) {
+      const iterator = store.keys();
+      for (let i = 0; i < MAX_ENTRIES / 2; i++) {
+        const { value } = iterator.next();
+        if (value) entriesToDelete.push(value);
+      }
+    }
+    for (const key of entriesToDelete) {
       store.delete(key);
     }
+  } else {
+    for (const [key, entry] of store) {
+      if (entry.resetAt <= now) {
+        store.delete(key);
+      }
+    }
   }
+}
+
+setInterval(() => {
+  cleanupExpiredEntries(Date.now());
 }, 30_000).unref();
 
 export function rateLimiter(req: Request, res: Response, next: NextFunction) {
   const key = req.ip ?? req.socket.remoteAddress ?? "unknown";
   const now = Date.now();
+  
+  if (store.size >= MAX_ENTRIES) {
+    cleanupExpiredEntries(now);
+  }
+  
   const entry = store.get(key);
 
   if (!entry || entry.resetAt <= now) {

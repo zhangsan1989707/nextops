@@ -11,21 +11,28 @@ export async function fetchJson<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
+  const token = localStorage.getItem("nextops_token");
+  
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
         ...options.headers,
       },
       credentials: 'include',
     });
     
     if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem("nextops_token");
+        window.location.href = "/login";
+      }
       const errorData = await response.json().catch(() => null);
       return {
         success: false,
-        error: errorData?.error || response.statusText,
+        error: errorData?.message || errorData?.error || response.statusText,
       };
     }
     
@@ -77,7 +84,7 @@ export const ruleApi = {
 };
 
 export const chatApi = {
-  send: (message: string, context?: string[]) => fetchJson<ChatResponse>('/chat', {
+  send: (message: string, context?: string[]) => fetchJson<ChatResponse>('/chatops/message', {
     method: 'POST',
     body: JSON.stringify({ message, context }),
   }),
@@ -232,3 +239,5 @@ export type Member = {
   status: 'active' | 'inactive';
   createdAt: string;
 };
+
+export * from './client';

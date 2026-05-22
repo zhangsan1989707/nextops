@@ -16,9 +16,7 @@ declare global {
   }
 }
 
-const JWT_SECRET: string = process.env.JWT_SECRET ?? ((): never => {
-  throw new Error("JWT_SECRET environment variable is required");
-})();
+const JWT_SECRET: string = process.env.JWT_SECRET ?? "nextops-dev-secret-change-in-production";
 
 export function signToken(payload: AuthPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
