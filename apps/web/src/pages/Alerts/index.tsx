@@ -1,18 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Activity,
   AlertTriangle,
   Bell,
   Bot,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Flame,
   Server,
   ShieldCheck,
   Siren,
+  Square,
+  CheckSquare,
   VolumeX,
   Zap,
-  ChevronRight,
+  X,
 } from "lucide-react";
 import { fetchAlerts, diagnoseAlert, acknowledgeAlert, resolveAlert, escalateAlert, silenceAlert } from "../../api/client";
 import type { AlertRecord, DiagnosisReport, AlertStats, AlertGroup } from "../../api/client";
@@ -76,7 +79,87 @@ export function Alerts({ servers, onOpenServer }: AlertsProps) {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "groups">("list");
+  const [selectedAlerts, setSelectedAlerts] = useState<Set<string>>(new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
   const toast = useToast();
+
+  const getFilteredAlerts = useCallback(() => {
+    return alerts.filter((alert) => {
+      if (filterSeverity !== "all" && alert.severity !== filterSeverity) return false;
+      if (filterStatus !== "all" && alert.status !== filterStatus) return false;
+      if (searchQuery && !alert.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      return true;
+    });
+  }, [alerts, filterSeverity, filterStatus, searchQuery]);
+
+  const filtered = getFilteredAlerts();
+  const isAllSelected = filtered.length > 0 && filtered.every((a) => selectedAlerts.has(a.id));
+  const selectedCount = selectedAlerts.size;
+
+  const toggleSelectAll = useCallback(() => {
+    const currentFiltered = getFilteredAlerts();
+    if (isAllSelected) {
+      setSelectedAlerts(new Set());
+    } else {
+      setSelectedAlerts(new Set(currentFiltered.map((a) => a.id)));
+    }
+  }, [isAllSelected, getFilteredAlerts]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedAlerts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedAlerts(new Set());
+  }, []);
+
+  const handleBatchAcknowledge = useCallback(async () => {
+    if (selectedCount === 0) return;
+    setBatchLoading(true);
+    const ids = Array.from(selectedAlerts);
+    let success = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await acknowledgeAlert(id);
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+    setBatchLoading(false);
+    clearSelection();
+    toast.success(`已认领 ${success} 个告警${failed > 0 ? `，${failed} 个失败` : ""}`);
+    await loadAlerts();
+  }, [selectedCount, selectedAlerts, clearSelection, toast]);
+
+  const handleBatchResolve = useCallback(async () => {
+    if (selectedCount === 0) return;
+    setBatchLoading(true);
+    const ids = Array.from(selectedAlerts);
+    let success = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await resolveAlert(id);
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+    setBatchLoading(false);
+    clearSelection();
+    toast.success(`已解决 ${success} 个告警${failed > 0 ? `，${failed} 个失败` : ""}`);
+    await loadAlerts();
+  }, [selectedCount, selectedAlerts, clearSelection, toast]);
 
   useEffect(() => {
     loadAlerts();
@@ -95,13 +178,6 @@ export function Alerts({ servers, onOpenServer }: AlertsProps) {
       toast.error("加载告警失败");
     }
   }
-
-  const filtered = alerts.filter((alert) => {
-    if (filterSeverity !== "all" && alert.severity !== filterSeverity) return false;
-    if (filterStatus !== "all" && alert.status !== filterStatus) return false;
-    if (searchQuery && !alert.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
 
   const stormGroups = groups.filter((g) => g.isStorm);
 
@@ -260,6 +336,44 @@ export function Alerts({ servers, onOpenServer }: AlertsProps) {
 
           {viewMode === "list" ? (
             <>
+              <div className="batch-toolbar">
+                <button
+                  className="batch-action-btn"
+                  onClick={toggleSelectAll}
+                  type="button"
+                >
+                  {isAllSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                  全选
+                </button>
+                {selectedCount > 0 && (
+                  <>
+                    <span className="batch-count">已选择 {selectedCount} 项</span>
+                    <button
+                      className="batch-action-btn primary"
+                      onClick={handleBatchAcknowledge}
+                      disabled={batchLoading}
+                      type="button"
+                    >
+                      <CheckCircle2 size={14} /> 批量认领
+                    </button>
+                    <button
+                      className="batch-action-btn success"
+                      onClick={handleBatchResolve}
+                      disabled={batchLoading}
+                      type="button"
+                    >
+                      <ShieldCheck size={14} /> 批量解决
+                    </button>
+                    <button
+                      className="batch-action-btn"
+                      onClick={clearSelection}
+                      type="button"
+                    >
+                      <X size={14} /> 取消选择
+                    </button>
+                  </>
+                )}
+              </div>
               <div className="filter-bar">
                 <button className={`filter-btn ${filterSeverity === "all" ? "active" : ""}`} onClick={() => setFilterSeverity("all")} type="button">
                   全部
@@ -287,7 +401,7 @@ export function Alerts({ servers, onOpenServer }: AlertsProps) {
               <div className="alert-list">
                 {filtered.map((alert) => (
                   <button
-                    className={selectedAlert?.id === alert.id ? "alert-item active" : "alert-item"}
+                    className={`alert-item ${selectedAlert?.id === alert.id ? "active" : ""} ${selectedAlerts.has(alert.id) ? "selected" : ""}`}
                     key={alert.id}
                     onClick={() => {
                       setSelectedAlert(alert);
@@ -295,6 +409,16 @@ export function Alerts({ servers, onOpenServer }: AlertsProps) {
                     }}
                     type="button"
                   >
+                    <input
+                      type="checkbox"
+                      className="alert-checkbox"
+                      checked={selectedAlerts.has(alert.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        toggleSelect(alert.id);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                     <div className={`alert-color-bar ${alert.severity}`} />
                     <span className={`severity ${alert.severity}`}>{severityLabel(alert.severity)}</span>
                     <strong>{alert.title}</strong>

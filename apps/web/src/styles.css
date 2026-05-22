@@ -1666,7 +1666,7 @@ select {
 
 .alert-item {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 24px auto 1fr auto;
   align-items: center;
   gap: 10px;
   min-height: 74px;
@@ -1685,6 +1685,82 @@ select {
   border-color: var(--brand-primary);
   background: #f6f9ff;
   box-shadow: var(--shadow-card);
+}
+
+.alert-item.selected {
+  background: #f0f7ff;
+  border-color: var(--brand-primary);
+}
+
+.alert-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--brand-primary);
+  margin: 0;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.batch-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.batch-action-btn:hover:not(:disabled) {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  background: #f6f9ff;
+}
+
+.batch-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.batch-action-btn.primary {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: white;
+}
+
+.batch-action-btn.primary:hover:not(:disabled) {
+  background: var(--brand-primary-hover);
+}
+
+.batch-action-btn.success {
+  background: var(--status-success);
+  border-color: var(--status-success);
+  color: white;
+}
+
+.batch-action-btn.success:hover:not(:disabled) {
+  background: #166534;
+}
+
+.batch-count {
+  font-size: 13px;
+  color: var(--brand-primary);
+  font-weight: 600;
+  padding: 0 8px;
 }
 
 .alert-item strong {
