@@ -27,7 +27,6 @@ export async function fetchJson<T>(
     if (!response.ok) {
       if (response.status === 401) {
         localStorage.removeItem("nextops_token");
-        window.location.href = "/login";
       }
       const errorData = await response.json().catch(() => null);
       return {
