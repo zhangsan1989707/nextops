@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Bell,
   Brain,
@@ -7,6 +7,7 @@ import {
   FileCode2,
   FolderOpen,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessageSquareText,
   Package,
@@ -23,6 +24,7 @@ interface LayoutProps {
   children: React.ReactNode;
   currentPath: string;
   onNavigate: (path: string) => void;
+  onLogout: () => void;
 }
 
 const navItems = [
@@ -45,9 +47,17 @@ const adminItems = [
   { path: '/roles', label: '角色管理', icon: Shield },
 ];
 
-export function Layout({ children, currentPath, onNavigate }: LayoutProps) {
+export function Layout({ children, currentPath, onNavigate, onLogout }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const user = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("nextops_user") || "{}");
+    } catch {
+      return {};
+    }
+  }, []);
 
   return (
     <div className={`layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -94,14 +104,17 @@ export function Layout({ children, currentPath, onNavigate }: LayoutProps) {
         
         <div className="sidebar-footer">
           <div className="user-info">
-            <div className="user-avatar">U</div>
+            <div className="user-avatar">{(user.name || "U").charAt(0)}</div>
             {!sidebarCollapsed && (
               <div className="user-details">
-                <span className="user-name">管理员</span>
-                <span className="user-role">系统管理员</span>
+                <span className="user-name">{user.name || "用户"}</span>
+                <span className="user-role">{user.role || ""}</span>
               </div>
             )}
           </div>
+          <button className="logout-btn" onClick={onLogout} type="button" title="退出登录">
+            <LogOut size={16} />
+          </button>
         </div>
       </aside>
 

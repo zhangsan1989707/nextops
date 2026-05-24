@@ -14,6 +14,7 @@ import { Models } from "./pages/Models";
 import { Members } from "./pages/Members";
 import { Teams } from "./pages/Teams";
 import { Roles } from "./pages/Roles";
+import { Login } from "./pages/Login";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { serverApi, alertApi } from "./api";
 import type { Server, Alert } from "./api";
@@ -23,6 +24,9 @@ function App() {
   const [servers, setServers] = useState<Server[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(
+    () => !!localStorage.getItem("nextops_token")
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -30,7 +34,7 @@ function App() {
       serverApi.getAll(),
       alertApi.getAll(),
     ]);
-    
+
     if (serversRes.success && serversRes.data) {
       setServers(serversRes.data.items);
     }
@@ -41,10 +45,34 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!authenticated) {
+      setLoading(false);
+      return;
+    }
     loadData();
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [loadData, authenticated]);
+
+  const handleLogin = () => {
+    setAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("nextops_token");
+    localStorage.removeItem("nextops_user");
+    setAuthenticated(false);
+    setServers([]);
+    setAlerts([]);
+  };
+
+  if (!authenticated) {
+    return (
+      <ErrorBoundary>
+        <Login onLogin={handleLogin} />
+      </ErrorBoundary>
+    );
+  }
 
   const renderPage = () => {
     switch (currentPath) {
@@ -83,7 +111,7 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <Layout currentPath={currentPath} onNavigate={setCurrentPath}>
+      <Layout currentPath={currentPath} onNavigate={setCurrentPath} onLogout={handleLogout}>
         {loading ? (
           <div className="loading-container">
             <div className="loading-spinner" />

@@ -1,3 +1,6 @@
+import { setToken } from './client';
+export { setToken };
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export interface ApiResponse<T> {
@@ -238,4 +241,7 @@ export type Member = {
   status: 'active' | 'inactive';
   createdAt: string;
 };
+
+export type { AuthResponse } from './client';
+export { login } from './client';
 
