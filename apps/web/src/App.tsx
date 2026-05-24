@@ -14,7 +14,6 @@ import { Models } from "./pages/Models";
 import { Members } from "./pages/Members";
 import { Teams } from "./pages/Teams";
 import { Roles } from "./pages/Roles";
-import { ToastProvider } from "./components/common/Toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { serverApi, alertApi } from "./api";
 import type { Server, Alert } from "./api";
@@ -83,20 +82,18 @@ function App() {
   };
 
   return (
-    <ToastProvider>
-      <ErrorBoundary>
-        <Layout currentPath={currentPath} onNavigate={setCurrentPath}>
-          {loading ? (
-            <div className="loading-container">
-              <div className="loading-spinner" />
-              <span>加载中...</span>
-            </div>
-          ) : (
-            renderPage()
-          )}
-        </Layout>
-      </ErrorBoundary>
-    </ToastProvider>
+    <ErrorBoundary>
+      <Layout currentPath={currentPath} onNavigate={setCurrentPath}>
+        {loading ? (
+          <div className="loading-container">
+            <div className="loading-spinner" />
+            <span>加载中...</span>
+          </div>
+        ) : (
+          renderPage()
+        )}
+      </Layout>
+    </ErrorBoundary>
   );
 }
 
