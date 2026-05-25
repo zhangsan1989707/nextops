@@ -17,6 +17,7 @@ import { Roles } from "./pages/Roles";
 import { Login } from "./pages/Login";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { serverApi, alertApi } from "./api";
+import { onAuthExpired, isAuthenticated } from "./api/auth-events";
 import type { Server, Alert } from "./api";
 
 function App() {
@@ -24,9 +25,7 @@ function App() {
   const [servers, setServers] = useState<Server[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(
-    () => !!localStorage.getItem("nextops_token")
-  );
+  const [authenticated, setAuthenticated] = useState(() => isAuthenticated());
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -54,16 +53,24 @@ function App() {
     return () => clearInterval(interval);
   }, [loadData, authenticated]);
 
+  useEffect(() => {
+    return onAuthExpired(() => {
+      setAuthenticated(false);
+      setServers([]);
+      setAlerts([]);
+    });
+  }, []);
+
   const handleLogin = () => {
     setAuthenticated(true);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("nextops_token");
-    localStorage.removeItem("nextops_user");
     setAuthenticated(false);
     setServers([]);
     setAlerts([]);
+    localStorage.removeItem("nextops_token");
+    localStorage.removeItem("nextops_user");
   };
 
   if (!authenticated) {

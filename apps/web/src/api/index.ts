@@ -1,4 +1,5 @@
 import { setToken } from './client';
+import { notifyAuthExpired } from './auth-events';
 export { setToken };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -29,7 +30,7 @@ export async function fetchJson<T>(
     
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem("nextops_token");
+        notifyAuthExpired();
       }
       const errorData = await response.json().catch(() => null);
       return {

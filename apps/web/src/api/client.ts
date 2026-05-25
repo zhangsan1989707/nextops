@@ -1,3 +1,5 @@
+import { notifyAuthExpired } from "./auth-events";
+
 const BASE_URL = "/api";
 
 function getToken(): string | null {
@@ -44,6 +46,9 @@ async function apiCall<T = unknown>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyAuthExpired();
+    }
     const body = await response.json().catch(() => ({}));
     const error: Error & { status?: number; body?: unknown } = new Error(
       (body as { message?: string })?.message ?? `API Error: ${response.status}`
