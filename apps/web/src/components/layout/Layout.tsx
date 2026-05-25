@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Bell,
   Brain,
@@ -11,15 +11,18 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
+  Moon,
   Package,
   Search,
   Server,
   Shield,
+  Sun,
   Terminal,
   Users,
   Users2,
   X,
 } from "lucide-react";
+import { toggleTheme, getTheme } from "../../utils/theme";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -59,6 +62,7 @@ export function Layout({ children, currentPath, onNavigate, onLogout }: LayoutPr
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set([0, 1]));
   const [searchOpen, setSearchOpen] = useState(false);
+  const [theme, setTheme] = useState(getTheme);
 
   const user = useMemo(() => {
     try {
@@ -66,6 +70,10 @@ export function Layout({ children, currentPath, onNavigate, onLogout }: LayoutPr
     } catch {
       return {};
     }
+  }, []);
+
+  const handleToggleTheme = useCallback(() => {
+    setTheme(toggleTheme());
   }, []);
 
   const toggleGroup = (index: number) => {
@@ -134,13 +142,13 @@ export function Layout({ children, currentPath, onNavigate, onLogout }: LayoutPr
           ))}
         </nav>
 
-        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--sidebar-border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px" }}>
+        <div className="sidebar-footer">
+          <div className="sidebar-user-row">
             <div className="user-avatar">{(user.name || "U").charAt(0)}</div>
             {!sidebarCollapsed && (
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="user-name">{user.name || "用户"}</div>
-                <div style={{ fontSize: 11, color: "var(--sidebar-text-muted)" }}>{user.role || ""}</div>
+                <div className="status-label">{user.role || ""}</div>
               </div>
             )}
             <button className="logout-btn" onClick={onLogout} type="button" title="退出登录">
@@ -154,12 +162,7 @@ export function Layout({ children, currentPath, onNavigate, onLogout }: LayoutPr
         <div className="topbar">
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "6px 14px", border: "1px solid var(--border-input)",
-                borderRadius: "var(--radius-md)", background: "var(--bg-card)",
-                cursor: "pointer", color: "var(--text-muted)", fontSize: 13,
-              }}
+              className="topbar-search-trigger"
               onClick={() => setSearchOpen(!searchOpen)}
               type="button"
             >
@@ -167,29 +170,21 @@ export function Layout({ children, currentPath, onNavigate, onLogout }: LayoutPr
               <span>搜索...</span>
             </button>
             {searchOpen && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
+              <div className="topbar-search-input">
                 <Search size={14} style={{ position: "absolute", left: 10, color: "var(--text-muted)" }} />
                 <input
                   type="text"
                   placeholder="搜索资源、命令、告警..."
-                  style={{
-                    padding: "6px 12px 6px 32px", border: "1px solid var(--border-input)",
-                    borderRadius: "var(--radius-md)", background: "var(--bg-input)",
-                    fontSize: 13, width: 280, outline: "none",
-                  }}
+                  className="topbar-search-field"
                 />
               </div>
             )}
           </div>
           <div className="header-actions">
-            <button
-              style={{
-                display: "grid", placeItems: "center", width: 34, height: 34,
-                border: "1px solid var(--border-input)", borderRadius: "var(--radius-md)",
-                background: "var(--bg-card)", cursor: "pointer", color: "var(--text-secondary)",
-              }}
-              type="button"
-            >
+            <button className="theme-toggle-btn" onClick={handleToggleTheme} type="button" title={theme === "dark" ? "切换亮色" : "切换暗色"}>
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button className="notification-bell-btn" type="button">
               <Bell size={18} />
             </button>
           </div>

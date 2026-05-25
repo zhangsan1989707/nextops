@@ -96,8 +96,8 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
   if (error) {
     return (
       <div className="content-grid">
-        <section className="panel" style={{ gridColumn: "1 / -1", textAlign: "center", padding: "60px 20px" }}>
-          <AlertTriangle size={48} style={{ color: "var(--color-critical)", marginBottom: "16px" }} />
+        <section className="panel error-state-panel">
+          <AlertTriangle size={48} style={{ color: "var(--status-critical)", marginBottom: "16px" }} />
           <h2 style={{ marginBottom: "12px" }}>加载失败</h2>
           <p style={{ color: "var(--text-muted)", marginBottom: "24px" }}>{error}</p>
           <button className="primary-button" onClick={() => loadDashboard(true)} type="button">
@@ -236,7 +236,7 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
         </section>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+      <div className="dashboard-two-col">
         <section className="panel">
           <div className="panel-header">
             <div>
@@ -244,7 +244,7 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
               <h2>运维效能</h2>
             </div>
           </div>
-          <div className="metric-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+          <div className="metric-grid metric-grid-compact">
             <article className="metric-card">
               <div className="metric-icon green">
                 <TrendingUp size={20} />
@@ -276,7 +276,7 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
               <h2>智能化</h2>
             </div>
           </div>
-          <div className="metric-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+          <div className="metric-grid metric-grid-compact">
             <article className="metric-card">
               <div className="metric-icon blue">
                 <Bot size={20} />
@@ -330,7 +330,7 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
             ))}
           </div>
         ) : (
-          <div style={{ padding: "24px 0", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+          <div className="timeline-empty">
             暂无告警记录
           </div>
         )}

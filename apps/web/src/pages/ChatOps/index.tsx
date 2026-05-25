@@ -279,8 +279,8 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
                   )}
 
                   {item.role === "assistant" && item.response?.missingParams && item.response.missingParams.length > 0 && (
-                    <div className="result-card" style={{ background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, color: "#f59e0b" }}>
+                    <div className="result-card warning-result-card">
+                      <div className="warning-card-header">
                         <AlertTriangle size={14} />
                         <strong style={{ fontSize: 13 }}>缺少以下参数，请补充：</strong>
                       </div>
@@ -345,7 +345,7 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
               </button>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 0 8px", fontSize: 11, color: "var(--text-muted)" }}>
+          <div className="intent-hints-row">
             <span>支持意图:</span>
             <span style={{ color: "var(--text-secondary)" }}>巡检</span>
             <span style={{ color: "var(--text-secondary)" }}>诊断</span>
