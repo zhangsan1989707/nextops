@@ -554,7 +554,7 @@ export async function fetchTaskRecords(limit = 20): Promise<{ items: TaskRecord[
 }
 
 export async function fetchDashboard(): Promise<DashboardData> {
-  return apiCall<DashboardData>("/dashboard");
+  return apiCall<DashboardData>("/dashboard/summary");
 }
 
 export async function toggleMember(id: string): Promise<MemberRecord> {
