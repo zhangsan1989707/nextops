@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Code, FileCode2, Plus, Search, Settings, Terminal, X, CheckCircle2 } from "lucide-react";
 
 interface Script {
@@ -16,6 +16,7 @@ export function Scripts() {
   const [previewScript, setPreviewScript] = useState<Script | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const scripts: Script[] = [
     { 
@@ -57,6 +58,15 @@ export function Scripts() {
     setPreviewScript(script);
   };
 
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleConfirmExecute = async () => {
     if (!previewScript) return;
     
@@ -67,13 +77,19 @@ export function Scripts() {
     setShowSuccess(true);
     
     // 3秒后关闭成功提示并重置
-    setTimeout(() => {
+    timeoutRef.current = setTimeout(() => {
       setShowSuccess(false);
       setPreviewScript(null);
+      timeoutRef.current = null;
     }, 3000);
   };
 
   const handleClosePreview = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setShowSuccess(false);
     setPreviewScript(null);
   };
 
