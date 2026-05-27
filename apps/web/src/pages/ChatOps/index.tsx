@@ -122,8 +122,19 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
   const [recentTasks, setRecentTasks] = useState<TimelineTask[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [conversationContext, setConversationContext] = useState<{ lastServer?: string; lastAction?: string; history: Array<{ role: string; content: string; timestamp: number }> } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const toast = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 搜索过滤历史消息
+  const filteredMessages = searchQuery.trim() === "" 
+    ? messages 
+    : messages.filter(msg => 
+        msg.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (msg.response?.intent && msg.response.intent.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (msg.response?.reply && msg.response.reply.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -232,7 +243,7 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
             <span>{openAlerts} 告警</span>
           </div>
           <div className="chat-topbar-right">
-            <button className="chat-icon-btn" type="button" aria-label="上下文">
+            <button className={`chat-icon-btn ${searchOpen ? "active" : ""}`} type="button" aria-label="搜索历史" onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery(""); }}>
               <Search size={16} />
             </button>
             <button className={`chat-icon-btn ${drawerOpen ? "active" : ""}`} type="button" aria-label="任务记录" onClick={() => setDrawerOpen(!drawerOpen)}>
@@ -244,8 +255,31 @@ export function ChatOps({ servers, alerts }: ChatOpsProps) {
           </div>
         </div>
 
+        {searchOpen && (
+          <div className="search-panel">
+            <div className="search-input-container">
+              <Search size={16} />
+              <input 
+                type="text" 
+                placeholder="搜索历史对话..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+              />
+              <button className="chat-icon-btn" type="button" aria-label="关闭搜索" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}>
+                <X size={14} />
+              </button>
+            </div>
+            {searchQuery && (
+              <div className="search-result-count">
+                找到 {filteredMessages.length} 条相关记录
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="chat-thread" aria-live="polite">
-          {messages.map((item) => (
+          {filteredMessages.map((item) => (
             <div className={`msg-row ${item.role}`} key={item.id}>
               <div className={`msg-avatar ${item.role === "assistant" ? "av-ai" : "av-user"}`}>
                 {item.role === "assistant" ? <Bot size={13} /> : "U"}

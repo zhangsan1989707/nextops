@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-28 (Nightly)
+
+### Added
+- **ChatOps history search**: Search historical conversations by content, intent, or reply
+- **Script execution preview**: Show script content, target servers, and confirm before execution
+- Enhanced script list with filtering support
+- Script execution modal with success feedback and loading state
+
 ## [0.3.0] - 2026-05-22 (Nightly)
 
 ### Added
