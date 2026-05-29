@@ -5,15 +5,17 @@ import {
   Bot,
   CheckCircle2,
   Clock,
+  Filter,
   RefreshCw,
   Server,
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  X,
   Zap,
 } from "lucide-react";
-import { fetchDashboard } from "../../api/client";
-import type { DashboardData } from "../../api/client";
+import { fetchDashboard, fetchDashboardFilters } from "../../api/client";
+import type { DashboardData, DashboardFilters as DashboardFiltersType } from "../../api/client";
 import { useToast } from "../../components/common/Toast";
 
 interface DashboardProps {
@@ -39,6 +41,11 @@ function healthGrade(score: number): { label: string; className: string } {
 
 export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [filters, setFilters] = useState<DashboardFiltersType | null>(null);
+  const [selectedTenant, setSelectedTenant] = useState<string>("");
+  const [selectedEnvironment, setSelectedEnvironment] = useState<string>("");
+  const [selectedTeam, setSelectedTeam] = useState<string>("");
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -47,7 +54,11 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
   const loadDashboard = useCallback(async (showRefreshToast = false) => {
     try {
       setError(null);
-      const result = await fetchDashboard();
+      const result = await fetchDashboard({
+        tenant: selectedTenant || undefined,
+        environment: selectedEnvironment || undefined,
+        team: selectedTeam || undefined,
+      });
       setData(result);
       if (showRefreshToast) {
         toast.success("数据已刷新");
@@ -60,13 +71,35 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [toast]);
+  }, [selectedTenant, selectedEnvironment, selectedTeam, toast]);
+
+  const loadFilters = useCallback(async () => {
+    try {
+      const result = await fetchDashboardFilters();
+      setFilters(result);
+    } catch (err) {
+      console.error("Failed to load filters:", err);
+    }
+  }, []);
 
   useEffect(() => {
+    loadFilters();
     loadDashboard();
     const interval = setInterval(() => loadDashboard(false), 30000);
     return () => clearInterval(interval);
-  }, [loadDashboard]);
+  }, [loadFilters, loadDashboard]);
+
+  useEffect(() => {
+    if (loading === false) {
+      loadDashboard();
+    }
+  }, [selectedTenant, selectedEnvironment, selectedTeam]);
+
+  const clearFilters = useCallback(() => {
+    setSelectedTenant("");
+    setSelectedEnvironment("");
+    setSelectedTeam("");
+  }, []);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -128,6 +161,126 @@ export function Dashboard({ onNavigate, onRefresh }: DashboardProps) {
 
   return (
     <div className="content-grid">
+      {/* Filter Bar */}
+      <div className="dashboard-filter-bar">
+        <div className="filter-bar-left">
+          <button
+            className="filter-toggle-button"
+            type="button"
+            onClick={() => setShowFilterPanel(!showFilterPanel)}
+          >
+            <Filter size={16} />
+            筛选
+            {(selectedTenant || selectedEnvironment || selectedTeam) && (
+              <span className="filter-count">
+                {[selectedTenant, selectedEnvironment, selectedTeam].filter(Boolean).length}
+              </span>
+            )}
+          </button>
+          {selectedTenant && (
+            <span className="filter-chip">
+              租户: {selectedTenant}
+              <button
+                type="button"
+                onClick={() => setSelectedTenant("")}
+                className="filter-chip-close"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {selectedEnvironment && (
+            <span className="filter-chip">
+              环境: {selectedEnvironment}
+              <button
+                type="button"
+                onClick={() => setSelectedEnvironment("")}
+                className="filter-chip-close"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {selectedTeam && (
+            <span className="filter-chip">
+              团队: {selectedTeam}
+              <button
+                type="button"
+                onClick={() => setSelectedTeam("")}
+                className="filter-chip-close"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {(selectedTenant || selectedEnvironment || selectedTeam) && (
+            <button
+              type="button"
+              className="clear-filters-button"
+              onClick={clearFilters}
+            >
+              清除全部
+            </button>
+          )}
+        </div>
+        <div className="filter-bar-right">
+          <button className="secondary-button" type="button" onClick={handleRefresh}>
+            <RefreshCw size={16} className={isRefreshing ? "spinning" : ""} /> 刷新
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Panel */}
+      {showFilterPanel && (
+        <div className="filter-panel">
+          <div className="filter-section">
+            <label className="filter-label">租户</label>
+            <select
+              className="filter-select"
+              value={selectedTenant}
+              onChange={(e) => setSelectedTenant(e.target.value)}
+            >
+              <option value="">全部</option>
+              {filters?.tenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.name}>
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="filter-section">
+            <label className="filter-label">环境</label>
+            <select
+              className="filter-select"
+              value={selectedEnvironment}
+              onChange={(e) => setSelectedEnvironment(e.target.value)}
+            >
+              <option value="">全部</option>
+              {filters?.environments.map((env) => (
+                <option key={env} value={env}>
+                  {env}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="filter-section">
+            <label className="filter-label">团队</label>
+            <select
+              className="filter-select"
+              value={selectedTeam}
+              onChange={(e) => setSelectedTeam(e.target.value)}
+            >
+              <option value="">全部</option>
+              {filters?.teams.map((team) => (
+                <option key={team.id} value={team.name}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       <section className="ai-status-hero">
         <div className="ai-status-badge">
           <div className={`status-indicator ${healthScore >= 70 ? "healthy" : healthScore >= 50 ? "warning" : "critical"}`} />

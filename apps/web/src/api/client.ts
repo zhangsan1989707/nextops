@@ -553,8 +553,23 @@ export async function fetchTaskRecords(limit = 20): Promise<{ items: TaskRecord[
   return apiCall<{ items: TaskRecord[] }>(`/tasks?limit=${limit}`);
 }
 
-export async function fetchDashboard(): Promise<DashboardData> {
-  return apiCall<DashboardData>("/dashboard/summary");
+export interface DashboardFilters {
+  tenants: TenantRecord[];
+  teams: TeamRecord[];
+  environments: string[];
+}
+
+export async function fetchDashboardFilters(): Promise<DashboardFilters> {
+  return apiCall<DashboardFilters>("/dashboard/filters");
+}
+
+export async function fetchDashboard(filters?: { tenant?: string; environment?: string; team?: string }): Promise<DashboardData> {
+  const params = new URLSearchParams();
+  if (filters?.tenant) params.set("tenant", filters.tenant);
+  if (filters?.environment) params.set("environment", filters.environment);
+  if (filters?.team) params.set("team", filters.team);
+  const queryString = params.toString();
+  return apiCall<DashboardData>(`/dashboard/summary${queryString ? `?${queryString}` : ""}`);
 }
 
 export async function toggleMember(id: string): Promise<MemberRecord> {

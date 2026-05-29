@@ -1,20 +1,62 @@
 import { Router } from "express";
-import { getAlerts, getScripts, getServers, getSlashCommands, getTaskRecords, getRecentMetricTrends } from "../db.js";
+import { getAlerts, getScripts, getServers, getSlashCommands, getTaskRecords, getRecentMetricTrends, getTenants, getTeams } from "../db.js";
 import { asyncHandler } from "../utils/helpers.js";
 
 const router = Router();
 
 router.get(
-  "/summary",
+  "/filters",
   asyncHandler(async (_req, res) => {
-    const [servers, alerts, scripts, slashCommands, tasks, trends] = await Promise.all([
-      getServers(),
+    const [tenants, teams, servers] = await Promise.all([
+      getTenants(),
+      getTeams(),
+      getServers()
+    ]);
+    
+    // Extract unique environments from servers
+    const environments = [...new Set(servers.map(s => s.environment))];
+    
+    res.json({
+      tenants,
+      teams,
+      environments
+    });
+  })
+);
+
+router.get(
+  "/summary",
+  asyncHandler(async (req, res) => {
+    const { tenant, environment, team } = req.query;
+    
+    // Get all servers first
+    let servers = await getServers();
+    
+    // Apply filters
+    if (tenant && typeof tenant === 'string') {
+      servers = servers.filter(s => s.tenant === tenant);
+    }
+    if (environment && typeof environment === 'string') {
+      servers = servers.filter(s => s.environment === environment);
+    }
+    
+    // Get filtered server IDs
+    const filteredServerIds = servers.map(s => s.id);
+    
+    // Get other data
+    const [allAlerts, scripts, slashCommands, tasks, trends] = await Promise.all([
       getAlerts(),
       getScripts(),
       getSlashCommands(),
       getTaskRecords(200),
       getRecentMetricTrends(24)
     ]);
+    
+    // Filter alerts by server IDs if needed
+    let alerts = allAlerts;
+    if (filteredServerIds.length > 0) {
+      alerts = alerts.filter(a => filteredServerIds.includes(a.serverId));
+    }
 
     const onlineServers = servers.filter((server) => server.agentStatus === "online").length;
     const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").length;
