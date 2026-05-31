@@ -1736,6 +1736,15 @@ export async function getMembers(): Promise<MemberRecord[]> {
   return result.rows.map(mapMember);
 }
 
+export async function getMember(id: string): Promise<MemberRecord | null> {
+  const result = await pool.query(
+    `select id, name, email, role, team, status, last_seen_at, permissions
+     from members where id = $1`,
+    [id]
+  );
+  return result.rows[0] ? mapMember(result.rows[0]) : null;
+}
+
 export async function getMemberByEmail(email: string): Promise<MemberRecord & { passwordHash: string | null } | null> {
   const result = await pool.query(
     "select id, name, email, role, team, status, last_seen_at, permissions, password_hash from members where email = $1",
