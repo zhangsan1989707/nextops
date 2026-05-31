@@ -1143,14 +1143,22 @@ async function runMigrations() {
   for (const migration of migrations) {
     const applied = await pool.query("select id from schema_migrations where id = $1", [migration.id]);
     if (applied.rowCount === 0) {
-      await pool.query("begin");
+      const client = await pool.connect();
       try {
-        await pool.query(migration.sql);
-        await pool.query("insert into schema_migrations (id) values ($1)", [migration.id]);
-        await pool.query("commit");
+        await client.query("begin");
+        await client.query(migration.sql);
+        await client.query("insert into schema_migrations (id) values ($1)", [migration.id]);
+        await client.query("commit");
       } catch (error) {
-        await pool.query("rollback");
+        // 只在连接有效时尝试回滚
+        try {
+          await client.query("rollback");
+        } catch (rollbackError) {
+          console.error("Rollback failed:", rollbackError);
+        }
         throw error;
+      } finally {
+        client.release();
       }
     }
   }

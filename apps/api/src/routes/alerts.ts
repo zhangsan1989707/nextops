@@ -78,7 +78,8 @@ router.post("/:id/escalate", asyncHandler(async (req, res) => {
 
 router.post("/:id/silence", asyncHandler(async (req, res) => {
   const id = String(req.params.id);
-  const duration = Number(req.body?.duration ?? 3600);
+  const rawDuration = req.body?.duration;
+  const duration = typeof rawDuration === "number" && !Number.isNaN(rawDuration) && rawDuration > 0 ? rawDuration : 3600;
   const alert = await getAlert(id);
   if (!alert) {
     res.status(404).json({ message: "Alert not found" });

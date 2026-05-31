@@ -51,10 +51,14 @@ router.post("/", asyncHandler(async (req, res) => {
 
 router.get("/:id", asyncHandler(async (req, res) => {
   const id = String(req.params.id);
+  // 安全处理limit参数，确保是正整数
+  const limitParam = Number(req.query.limit);
+  const safeLimit = Number.isNaN(limitParam) || limitParam < 1 ? 60 : Math.min(limitParam, 360);
+  
   const [server, inventory, metrics, latest] = await Promise.all([
     getServer(id),
     getServerInventory(id),
-    getServerMetrics(id, Math.min(Number(req.query.limit) || 60, 360)),
+    getServerMetrics(id, safeLimit),
     getLatestExtendedMetrics(id)
   ]);
   if (!server) {

@@ -6,8 +6,10 @@ import { asyncHandler, chunkText, getActor, wait, writeStreamEvent } from "../ut
 const router = Router();
 
 router.post("/message", asyncHandler(async (req, res) => {
-  const message = String(req.body?.message ?? "").trim();
-  if (!message) {
+  const message = req.body?.message;
+  const trimmedMessage = typeof message === "string" ? message.trim() : "";
+  
+  if (!trimmedMessage) {
     res.status(400).json({ message: "message is required" });
     return;
   }
@@ -21,7 +23,7 @@ router.post("/message", asyncHandler(async (req, res) => {
   ]);
 
   const plan = await buildChatOpsPlan({
-    message,
+    message: trimmedMessage,
     context: { servers, alerts, scripts },
     model
   });
@@ -47,12 +49,12 @@ router.post("/message", asyncHandler(async (req, res) => {
     resourceType: "task",
     resourceId: task.id,
     summary: `ChatOps 生成 ${plan.intent} 计划`,
-    details: { message, intent: plan.intent, mode: plan.mode, warnings: plan.warnings }
+    details: { message: trimmedMessage, intent: plan.intent, mode: plan.mode, warnings: plan.warnings }
   });
 
   res.json({
-    input: message,
-    commandMode: message.startsWith("/"),
+    input: trimmedMessage,
+    commandMode: trimmedMessage.startsWith("/"),
     taskId: task.id,
     status: task.status,
     executionMode: "planned_only",
@@ -62,8 +64,10 @@ router.post("/message", asyncHandler(async (req, res) => {
 }));
 
 router.post("/stream", asyncHandler(async (req, res) => {
-  const message = String(req.body?.message ?? "").trim();
-  if (!message) {
+  const message = req.body?.message;
+  const trimmedMessage = typeof message === "string" ? message.trim() : "";
+  
+  if (!trimmedMessage) {
     res.status(400).json({ message: "message is required" });
     return;
   }
@@ -85,7 +89,7 @@ router.post("/stream", asyncHandler(async (req, res) => {
       useModel ? getDefaultAiModelForRuntime() : Promise.resolve(null)
     ]);
 
-    const plan = await buildChatOpsPlan({ message, context: { servers, alerts, scripts }, model });
+    const plan = await buildChatOpsPlan({ message: trimmedMessage, context: { servers, alerts, scripts }, model });
     const task = await createTaskRecord({
       id: `task-${Date.now().toString(36)}`,
       taskType: `chatops_${plan.intent}`,
