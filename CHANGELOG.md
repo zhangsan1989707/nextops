@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **服务器详情页图表优化**: 在服务器详情模态框中添加了可交互的 CPU 和内存趋势图
+- 添加 Feature Flag `VITE_ENABLE_SERVER_DETAIL_CHARTS` 控制新功能的启用/禁用
+
 ## [0.4.0] - 2026-05-28 (Nightly)
 
 ### Added
