@@ -1143,14 +1143,22 @@ async function runMigrations() {
   for (const migration of migrations) {
     const applied = await pool.query("select id from schema_migrations where id = $1", [migration.id]);
     if (applied.rowCount === 0) {
-      await pool.query("begin");
+      const client = await pool.connect();
       try {
-        await pool.query(migration.sql);
-        await pool.query("insert into schema_migrations (id) values ($1)", [migration.id]);
-        await pool.query("commit");
+        await client.query("begin");
+        await client.query(migration.sql);
+        await client.query("insert into schema_migrations (id) values ($1)", [migration.id]);
+        await client.query("commit");
       } catch (error) {
-        await pool.query("rollback");
+        // 只在连接有效时尝试回滚
+        try {
+          await client.query("rollback");
+        } catch (rollbackError) {
+          console.error("Rollback failed:", rollbackError);
+        }
         throw error;
+      } finally {
+        client.release();
       }
     }
   }
@@ -1734,6 +1742,15 @@ export async function getMembers(): Promise<MemberRecord[]> {
     order by created_at asc
   `);
   return result.rows.map(mapMember);
+}
+
+export async function getMember(id: string): Promise<MemberRecord | null> {
+  const result = await pool.query(
+    `select id, name, email, role, team, status, last_seen_at, permissions
+     from members where id = $1`,
+    [id]
+  );
+  return result.rows[0] ? mapMember(result.rows[0]) : null;
 }
 
 export async function getMemberByEmail(email: string): Promise<MemberRecord & { passwordHash: string | null } | null> {

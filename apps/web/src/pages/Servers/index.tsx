@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Activity,
   Cloud,
@@ -14,17 +14,24 @@ import {
 } from "lucide-react";
 import type { Server as ServerType } from "../../api";
 import { useToast } from "../../components/common/Toast";
+import { fetchServer, type ServerDetail } from "../../api/client";
+import { LineChart } from "../../components/charts/LineChart";
 
 interface ServersProps {
   servers: ServerType[];
   onRefresh?: () => void;
 }
 
+// Feature Flag: 启用服务器详情页图表优化
+const ENABLE_SERVER_DETAIL_CHARTS = import.meta.env.VITE_ENABLE_SERVER_DETAIL_CHARTS !== 'false';
+
 export function Servers({ servers, onRefresh }: ServersProps) {
   const [filterEnv, setFilterEnv] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedServer, setSelectedServer] = useState<ServerType | null>(null);
+  const [serverDetail, setServerDetail] = useState<ServerDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const toast = useToast();
 
@@ -37,6 +44,22 @@ export function Servers({ servers, onRefresh }: ServersProps) {
       toast.success("服务器列表已刷新");
     }, 500);
   }, [onRefresh, toast]);
+
+  const handleSelectServer = useCallback(async (server: ServerType) => {
+    setSelectedServer(server);
+    if (ENABLE_SERVER_DETAIL_CHARTS) {
+      setLoadingDetail(true);
+      try {
+        const detail = await fetchServer(server.id);
+        setServerDetail(detail);
+      } catch (err) {
+        console.error('Failed to load server detail:', err);
+        toast.error('加载服务器详情失败');
+      } finally {
+        setLoadingDetail(false);
+      }
+    }
+  }, [toast]);
 
   const environments = [...new Set(servers.map(s => s.environment))];
   const filtered = servers.filter(server => {
@@ -162,7 +185,7 @@ export function Servers({ servers, onRefresh }: ServersProps) {
                   </td>
                   <td>{server.loadAvg.toFixed(2)}</td>
                   <td>
-                    <button className="table-btn" onClick={() => setSelectedServer(server)} type="button">
+                    <button className="table-btn" onClick={() => handleSelectServer(server)} type="button">
                       <Settings size={14} />
                     </button>
                   </td>
@@ -177,7 +200,7 @@ export function Servers({ servers, onRefresh }: ServersProps) {
       </div>
 
       {selectedServer && (
-        <div className="modal-overlay" onClick={() => setSelectedServer(null)}>
+        <div className="modal-overlay" onClick={() => { setSelectedServer(null); setServerDetail(null); }}>
           <div className="modal server-detail-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -212,6 +235,23 @@ export function Servers({ servers, onRefresh }: ServersProps) {
                   <dd>{selectedServer.tags.join(", ")}</dd>
                 </div>
               </div>
+
+              {ENABLE_SERVER_DETAIL_CHARTS && (
+                <div className="charts-section">
+                  <h4>指标趋势图</h4>
+                  {loadingDetail ? (
+                    <div className="loading-container">
+                      <div className="loading-spinner" />
+                      <span>加载指标数据中...</span>
+                    </div>
+                  ) : serverDetail && serverDetail.realtime.length > 0 ? (
+                    <LineChart data={serverDetail.realtime} />
+                  ) : (
+                    <div className="table-empty">暂无指标数据</div>
+                  )}
+                </div>
+              )}
+
               <div className="metrics-section">
                 <h4>实时指标</h4>
                 <div className="metric-item">
@@ -241,7 +281,7 @@ export function Servers({ servers, onRefresh }: ServersProps) {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="secondary-button" onClick={() => setSelectedServer(null)} type="button">关闭</button>
+              <button className="secondary-button" onClick={() => { setSelectedServer(null); setServerDetail(null); }} type="button">关闭</button>
               <button className="primary-button" type="button">
                 <TrendingUp size={16} /> 查看监控
               </button>

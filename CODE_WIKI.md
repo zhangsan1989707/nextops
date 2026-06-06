@@ -7,12 +7,12 @@ NextOps 是一个 **AIOps 与 ChatOps 运维平台**，产品理念为 "将复�
 | 属性 | 值 |
 |------|-----|
 | 项目名称 | NextOps |
-| 版本 | 0.1.0 |
-| 架构模式 | Monorepo（多应用架构） |
+| 版本 | 0.4.0 (Nightly) |
+| 架构模式 | Monorepo（npm Workspaces） |
 | 包管理 | npm Workspaces |
-| 后端 | Express.js + PostgreSQL + TypeScript |
-| 前端 | React 19 + Vite + TypeScript |
-| Agent | 轻量级 Node.js 采集端 |
+| 后端 | Express.js + PostgreSQL + TypeScript (ESM) |
+| 前端 | React 19 + Vite 6 + TypeScript |
+| Agent | 轻量级 Node.js 采集端（零运行时依赖） |
 
 ---
 
@@ -21,19 +21,23 @@ NextOps 是一个 **AIOps 与 ChatOps 运维平台**，产品理念为 "将复�
 ```
 nextops/
 ├── apps/                          # 应用层（monorepo workspace）
-│   ├── api/                       # 后端 Express API 服务
-│   ├── web/                       # 前端 React 单页应用
+│   ├── api/                       # 后端 Express API 服务 (23 个路由模块)
+│   ├── web/                       # 前端 React SPA (16 个页面)
 │   └── agent/                     # 轻量级服务器指标采集 Agent
 ├── deploy/                        # 部署配置
 │   └── docker-compose.yml         # Docker Compose 编排（web + api + postgresql + redis）
-├── docs/                          # 产品与工程技术文档
+├── docs/                          # 产品与工程技术文档 (8 个文档)
 ├── scripts/                       # 运维与 CI/CD 脚本
-│   ├── smoke-test.sh              # 冒烟测试
-│   └── nightly-codex-dev.sh       # 夜间构建脚本
+│   ├── smoke-test.sh              # 冒烟测试（Agent 注册、指标、AI 诊断、ChatOps）
+│   ├── nightly-codex-dev.sh       # 夜间 Codex 自动化开发脚本
+│   └── install-nightly-codex-launchd.sh  # 安装 launchd 定时任务
 ├── package.json                   # 根 package.json（管理 workspace）
-├── .env.example                   # 环境变量示例
-├── Jenkinsfile                    # CI/CD 流水线配置
-└── README.md                      # 项目说明文档
+├── .env.example                   # 环境变量示例（13 个配置项）
+├── Jenkinsfile                    # CI/CD 流水线配置（6 阶段）
+├── README.md                      # 项目说明文档
+├── CHANGELOG.md                   # 变更日志（Keep a Changelog 格式）
+├── FEATURES.md                    # 功能清单
+└── CODE_WIKI.md                   # 项目代码 Wiki（本文档）
 ```
 
 ---
@@ -63,47 +67,64 @@ nextops/
 ```
 apps/api/src/
 ├── index.ts                       # 应用入口（Express 初始化、路由注册、启动）
-├── db.ts                          # 数据库层（连接池、类型定义、迁移、种子数据、CRUD）
+├── db.ts                          # 数据库层（71KB — 连接池、类型定义、迁移、种子数据、CRUD）
+├── ai.ts                          # AI 诊断核心逻辑（12KB）
+├── chatops.ts                     # ChatOps 引擎（27KB）
+├── crypto.ts                      # 加解密工具
+├── ai.test.ts                     # AI 测试
+├── chatops.test.ts                # ChatOps 测试
 ├── middleware/
-│   ├── auth.ts                    # JWT 认证中间件
-│   └── error.ts                   # 全局错误处理中间件
-└── routes/
-    ├── health.ts                  # 健康检查路由
-    ├── auth.ts                    # 认证路由（登录/注册）
-    ├── dashboard.ts               # 仪表盘数据路由
-    ├── servers.ts                 # 服务器管理路由
-    ├── agents.ts                  # Agent 注册与指标上报（含公开端点）
-    ├── alerts.ts                  # 告警中心路由
-    ├── scripts.ts                 # 脚本中心路由
-    ├── slash-commands.ts          # Slash 命令路由
-    ├── chatops.ts                 # ChatOps 路由
-    ├── models.ts                  # AI 模型管理路由
-    ├── members.ts                 # 成员管理路由
-    ├── teams.ts                   # 团队结构路由
-    ├── roles.ts                   # 角色权限路由
-    ├── tasks.ts                   # 任务记录路由
-    ├── approvals.ts               # 审批工单路由
-    ├── files.ts                   # 文件管理路由
-    ├── packages.ts                # 包管理路由
-    ├── tenants.ts                 # 多租户路由
-    └── audit-logs.ts              # 审计日志路由
+│   ├── auth.ts                    # JWT 认证中间件（signToken, verifyToken, authMiddleware, optionalAuth, requireRole）
+│   ├── agent-auth.ts              # Agent 注册认证中间件（x-agent-token 验证）
+│   ├── error.ts                   # 全局错误处理中间件
+│   └── rate-limiter.ts            # IP 级别速率限制（默认 2000 req/min）
+├── routes/                        # 23 个路由模块
+│   ├── health.ts                  # 健康检查路由
+│   ├── auth.ts                    # 认证路由（登录/注册）
+│   ├── dashboard.ts               # 仪表盘数据路由
+│   ├── servers.ts                 # 服务器管理路由
+│   ├── agents.ts                  # Agent 注册与指标上报（含公开端点）
+│   ├── alerts.ts                  # 告警中心路由
+│   ├── diagnosis.ts               # AI 诊断路由（独立诊断端点）
+│   ├── inspection.ts              # 巡检中心路由（模板 + 报告）
+│   ├── knowledge.ts               # 知识库路由
+│   ├── topology.ts                # 拓扑视图路由
+│   ├── scripts.ts                 # 脚本中心路由
+│   ├── slash-commands.ts          # Slash 命令路由
+│   ├── chatops.ts                 # ChatOps 路由
+│   ├── models.ts                  # AI 模型管理路由
+│   ├── members.ts                 # 成员管理路由
+│   ├── teams.ts                   # 团队结构路由
+│   ├── roles.ts                   # 角色权限路由
+│   ├── tasks.ts                   # 任务记录路由
+│   ├── approvals.ts               # 审批工单路由
+│   ├── files.ts                   # 文件管理路由
+│   ├── packages.ts                # 包管理路由
+│   ├── tenants.ts                 # 多租户路由
+│   └── audit-logs.ts              # 审计日志路由
+├── services/                      # Service 层
+│   ├── identity.service.ts        # 身份聚合服务
+│   ├── model.service.ts           # AI 模型服务（含 API Key 加解密）
+│   └── server.service.ts          # 服务器服务
+└── utils/
+    └── helpers.ts                 # 工具函数（asyncHandler, getActor）
 ```
 
 #### 3.1.3 入口文件 ([index.ts](file:///Users/leohang/project/nextops/apps/api/src/index.ts))
 
 **核心启动流程**:
-1. 加载 `.env` 配置
+1. 加载 `.env` 配置（`dotenv.config()`）
 2. 创建 Express 应用实例
-3. 注册 JSON 解析中间件
-4. 配置 CORS（通过 `ALLOWED_ORIGINS` 环境变量）
+3. 注册中间件链：`express.json()` → `cors()` → `rateLimiter`
+4. 配置 CORS（通过 `ALLOWED_ORIGINS` 环境变量，逗号分隔）
 5. 注册路由：
    - `/health` — 健康检查（公开）
    - `/api/auth` — 认证（公开）
-   - `/api/agents` — Agent 注册/指标（部分公开）
+   - `/api/agents` — Agent 注册/指标（使用 `agentAuthMiddleware` 内部保护）
    - 其余所有 `/api/*` 路由均通过 `authMiddleware` 保护
-6. 注册全局错误处理器（必须在最后）
+6. 注册全局错误处理器（`errorHandler`，必须在最后）
 7. 初始化数据库（迁移 + 种子数据）
-8. 启动 HTTP 服务
+8. 启动 HTTP 服务（默认端口 4000）
 
 **路由注册一览**:
 
@@ -111,11 +132,17 @@ apps/api/src/
 |----------|--------|--------|
 | `/health` | 无 | 健康检查 |
 | `/api/auth` | 无（公开） | 登录、注册、获取用户信息 |
-| `/api/agents` | 部分端点公开 | Agent 注册、指标上报 |
+| `/api/agents` | `agentAuthMiddleware`（内部） | Agent 注册、指标上报 |
 | `/api/dashboard` | `authMiddleware` | 仪表盘数据聚合 |
-| `/api/servers` | `authMiddleware` | 服务器 CRUD |
+| `/api/servers` | `authMiddleware` | 服务器 CRUD + AI 诊断 |
 | `/api/alerts` | `authMiddleware` | 告警列表与详情 |
-| `/api/scripts` | `authMiddleware` | 脚本查询 |
+| `/api/diagnosis` | `authMiddleware` | AI 诊断（独立诊断端点） |
+| `/api/inspection` | `authMiddleware` | 巡检模板与报告 |
+| `/api/knowledge` | `authMiddleware` | 知识库 CRUD |
+| `/api/topology` | `authMiddleware` | 拓扑视图 |
+| `/api/scripts` | `authMiddleware` | 脚本查询 + 执行 |
+| `/api/slash-commands` | `authMiddleware` | Slash 命令目录 |
+| `/api/chatops` | `authMiddleware` | ChatOps 交互（message + stream） |
 | `/api/models` | `authMiddleware` | AI 模型管理（CRUD + 启停 + 设默认） |
 | `/api/members` | `authMiddleware` | 成员管理（列表、角色更新、状态切换） |
 | `/api/teams` | `authMiddleware` | 团队结构 |
@@ -126,8 +153,6 @@ apps/api/src/
 | `/api/packages` | `authMiddleware` | 包分发管理 |
 | `/api/tenants` | `authMiddleware` | 多租户管理 |
 | `/api/audit-logs` | `authMiddleware` | 审计日志 |
-| `/api/slash-commands` | `authMiddleware` | Slash 命令目录 |
-| `/api/chatops` | `authMiddleware` | ChatOps 交互 |
 
 #### 3.1.4 数据库层 ([db.ts](file:///Users/leohang/project/nextops/apps/api/src/db.ts))
 
@@ -223,20 +248,40 @@ initializeDatabase()
 #### 3.1.5 中间件
 
 **认证中间件** ([auth.ts](file:///Users/leohang/project/nextops/apps/api/src/middleware/auth.ts)):
-- 验证请求头中的 JWT 令牌
-- 检查用户权限状态
-- 将用户信息附加到请求上下文
+- `signToken(payload)` — 签发 JWT 令牌
+- `verifyToken(token)` — 验证 JWT 令牌
+- `authMiddleware` — 保护业务 API，验证请求头中的 JWT 令牌，检查用户权限状态，将用户信息附加到请求上下文
+- `optionalAuth` — 可选认证（不强制要求令牌）
+- `requireRole(...roles)` — 角色权限校验
+
+**Agent 认证中间件** ([agent-auth.ts](file:///Users/leohang/project/nextops/apps/api/src/middleware/agent-auth.ts)):
+- 通过 `x-agent-token` 请求头验证 `AGENT_TOKEN` 环境变量
+- 保护 Agent 注册和指标上报端点
+
+**速率限制中间件** ([rate-limiter.ts](file:///Users/leohang/project/nextops/apps/api/src/middleware/rate-limiter.ts)):
+- 基于 IP 的请求限流（默认 2000 req/min）
+- 自动清理过期条目（每 60 秒）
 
 **错误处理中间件** ([error.ts](file:///Users/leohang/project/nextops/apps/api/src/middleware/error.ts)):
 - 全局异常捕获
 - 统一错误响应格式
 
-#### 3.1.6 安全设计
+#### 3.1.6 Service 层
 
-- JWT 令牌认证保护所有业务 API
+| 文件 | 功能 |
+|------|------|
+| `services/identity.service.ts` | 身份聚合：获取成员/团队/角色/权限概览 |
+| `services/model.service.ts` | AI 模型服务：CRUD + API Key 加解密 + 模型统计 |
+| `services/server.service.ts` | 服务器服务：Agent 注册、指标记录、服务器健康信息聚合 |
+
+#### 3.1.7 安全设计
+
+- JWT 令牌认证保护所有业务 API（21 个路由模块）
+- Agent 独立认证（`AGENT_TOKEN` 环境变量）
 - 密码使用 bcrypt 哈希存储
-- API 响应中不暴露模型 API 密钥
+- API 响应中不暴露模型 API 密钥（`crypto.ts` 加解密）
 - CORS 需显式配置 `ALLOWED_ORIGINS`
+- 速率限制保护 API（默认 2000 req/min/IP）
 - 审计日志记录关键操作（审计跟踪）
 - 生产环境建议加密存储模型 API Key
 
@@ -260,45 +305,109 @@ initializeDatabase()
 #### 3.2.2 核心组件
 
 **主应用** ([App.tsx](file:///Users/leohang/project/nextops/apps/web/src/App.tsx)):
-- 应用主入口，包含完整的页面逻辑
+- 应用主入口，包含完整的页面逻辑和客户端路由
+- 客户端路由通过 `currentPath` 状态实现（非 react-router）
+- 登录状态控制：未认证显示 Login 页，已认证显示 Layout + 对应页面
 - 左侧导航栏：仪表盘、ChatOps、服务器、告警、脚本、Slash 命令、包管理、文件管理、租户、审批、模型、成员、团队、角色
-- API 集成层：
-  ```typescript
-  function getAuthHeaders()     // 获取认证请求头
-  function postJson(url, data)  // POST 请求辅助函数
-  ```
-- 状态管理：使用 React `useState` 进行本地状态管理
-- 模型管理页面完整实现（列表、搜索、筛选、添加、编辑、删除、启停、连接测试）
+- 每 30 秒轮询获取服务器列表和告警数据
+- 支持 token 过期监听自动登出
+- API 集成层（`api/client.ts` + `api/index.ts`）：
+  - 统一的 HTTP 客户端封装
+  - 自动附加 JWT 认证头
+  - 认证过期事件处理
+
+**前端目录结构**:
+```
+apps/web/src/
+├── App.tsx                  # 应用入口（路由 + 认证状态）
+├── main.tsx                 # React 挂载点
+├── api/
+│   ├── index.ts             # API 类型定义 + 请求封装
+│   ├── client.ts            # HTTP 客户端（15KB, fetch 封装）
+│   └── auth-events.ts       # 认证过期事件处理
+├── hooks/
+│   └── useWebSocket.ts      # WebSocket 实时通信 Hook
+├── routes/
+│   └── index.ts             # 路由配置
+├── utils/
+│   └── theme.ts             # 主题工具
+├── components/
+│   ├── CommandPalette.tsx   # 命令面板 (⌘K 快捷键)
+│   ├── ErrorBoundary.tsx    # React 错误边界
+│   ├── HealthRing.tsx       # 圆形健康度可视化
+│   ├── Models.tsx           # AI 模型管理组件 (34KB)
+│   ├── Skeleton.tsx         # 骨架屏加载占位
+│   ├── Sparkline.tsx        # 迷你趋势图 SVG
+│   ├── Toast.tsx            # Toast 通知
+│   ├── charts/
+│   │   └── LineChart.tsx    # SVG 折线图
+│   ├── common/
+│   │   ├── CopilotDrawer.tsx  # AI 助手侧边抽屉
+│   │   ├── ServerHealth.tsx   # 服务器健康状态
+│   │   └── Toast.tsx          # 公共 Toast
+│   └── layout/
+│       └── Layout.tsx       # 全局布局（侧边栏 + 顶栏）
+├── pages/                   # 16 个页面组件（独立目录）
+│   ├── Alerts/index.tsx     # 告警管理 (24KB)
+│   ├── Approvals/index.tsx  # 审批管理
+│   ├── ChatOps/index.tsx    # ChatOps 对话 (18KB)
+│   ├── Commands/index.tsx   # 命令中心
+│   ├── Dashboard/index.tsx  # 仪表盘 (18KB)
+│   ├── Files/index.tsx      # 文件管理
+│   ├── Login/index.tsx      # 登录页
+│   ├── Members/index.tsx    # 成员管理 (18KB)
+│   ├── Models/index.tsx     # 模型管理
+│   ├── Packages/index.tsx   # 包管理
+│   ├── Roles/index.tsx      # 角色管理
+│   ├── Scripts/index.tsx    # 脚本中心 (8KB)
+│   ├── Servers/index.tsx    # 服务器管理 (11KB, 含 Feature Flag)
+│   ├── Teams/index.tsx      # 团队管理
+│   └── Tenants/index.tsx    # 租户管理
+└── styles/
+    ├── styles.css            # 主样式 (71KB)
+    ├── styles-enterprise.css # 企业版样式 (36KB)
+    ├── styles-upgrade.css    # 升级版样式 (17KB)
+    └── models-v2.css         # 模型页面样式 (13KB)
+```
+
+**Feature Flag**:
+- `VITE_ENABLE_SERVER_DETAIL_CHARTS` — 控制服务器详情页 CPU/内存趋势图（默认启用）
+- 位于 `pages/Servers/index.tsx`，通过 `import.meta.env` 读取
 
 **模型组件** ([Models.tsx](file:///Users/leohang/project/nextops/apps/web/src/components/Models.tsx)):
-- 模型管理独立组件
+- 模型管理独立组件 (34KB)
 - 预定义模型模板：智谱 AI、OpenAI、DeepSeek、Ollama、本地模型等
-- 支持本地/Ollama、Deepseek、OpenAI 兼容模型的添加
+- 支持本地/Ollama、Deepseek、OpenAI 兼容模型的添加、编辑、删除、启停、设默认
 
 #### 3.2.3 前端功能域
 
-| 功能模块 | 说明 |
-|----------|------|
-| 仪表盘 | 系统数据汇总与可视化 |
-| ChatOps | 模拟控制面板与 Slash 命令提示 |
-| 服务器列表 | 纳管服务器列表与健康详情 |
-| 告警中心 | 告警列表与状态 |
-| 脚本中心 | 脚本模板库 |
-| Slash 命令 | ChatOps 命令参考 |
-| 包管理 | 软件包版本管理 |
-| 文件管理 | 托管文件列表 |
-| 租户面板 | 多租户概览 |
-| 审批工单 | 审批流程管理 |
-| 模型管理 | AI 模型配置（支持添加/编辑/删除/启停/设默认） |
-| 成员管理 | 用户列表与角色分配 |
-| 团队结构 | 组织架构展示 |
-| 角色权限 | RBAC 权限矩阵 |
+| 功能模块 | 页面路径 | 说明 |
+|----------|----------|------|
+| 仪表盘 | `/` | 系统数据汇总与可视化 |
+| ChatOps | `/chatops` | 自然语言控制台 + Slash 命令提示 |
+| 服务器列表 | `/servers` | 纳管服务器列表与健康详情（含趋势图 Feature Flag） |
+| 告警中心 | `/alerts` | 告警列表与批量操作 |
+| 脚本中心 | `/scripts` | 脚本模板库 + 执行预览 |
+| 命令中心 | `/commands` | ChatOps 命令参考 |
+| 包管理 | `/packages` | 软件包版本管理 |
+| 文件管理 | `/files` | 托管文件列表 |
+| 租户面板 | `/tenants` | 多租户概览 |
+| 审批工单 | `/approvals` | 审批流程管理 |
+| 模型管理 | `/models` | AI 模型配置（添加/编辑/删除/启停/设默认） |
+| 成员管理 | `/members` | 用户列表与角色分配 |
+| 团队结构 | `/teams` | 组织架构展示 |
+| 角色权限 | `/roles` | RBAC 权限矩阵 |
+| 巡检中心 | `/inspection` | 巡检模板与报告 |
+| 知识库 | `/knowledge` | 运维知识文章管理 |
+| 拓扑视图 | `/topology` | 业务系统拓扑可视化 |
 
 #### 3.2.4 API 集成
 
 前端通过 REST API 与后端通信：
-- 使用 `fetch` API 进行 HTTP 请求
-- 通过 `getAuthHeaders()` 附加 JWT 认证头
+- 使用 `api/client.ts` 封装的 `fetch` API 进行 HTTP 请求
+- 自动附加 JWT 认证头（token 从 localStorage 读取）
+- 认证过期事件通过 `api/auth-events.ts` 处理（自动登出）
+- WebSocket 支持通过 `hooks/useWebSocket.ts` 实现实时通信
 - 后端地址通过环境变量或默认配置指定
 
 ---
@@ -361,41 +470,70 @@ type Inventory = {
 ┌─────────────────────────────────────────────────┐
 │                    Browser                       │
 │                   (前端 Web)                     │
+│  ┌───────────────────────────────────────────┐  │
+│  │  App.tsx (路由 + 认证)                     │  │
+│  │  ├── pages/ (16 个页面组件)                │  │
+│  │  ├── components/ (公共组件 + 布局)          │  │
+│  │  ├── api/client.ts (HTTP 客户端)           │  │
+│  │  ├── hooks/useWebSocket.ts (实时通信)       │  │
+│  │  └── Feature Flag: VITE_ENABLE_*           │  │
+│  └───────────────────────────────────────────┘  │
 └─────────────────────┬───────────────────────────┘
                       │ HTTP/REST (JWT Auth)
+                      │ + WebSocket
                       ▼
 ┌─────────────────────────────────────────────────┐
 │              Express API Server                  │
 │                   (Port 4000)                    │
 │  ┌────────────────────────────────────────────┐  │
-│  │  Routes (17 个路由模块)                     │  │
-│  │  ├── health / auth (公开)                  │  │
-│  │  ├── servers / alerts / scripts ...        │  │
-│  │  └── models / members / teams / roles ...  │  │
+│  │  Middleware Chain                          │  │
+│  │  json → cors → rateLimiter                 │  │
 │  ├────────────────────────────────────────────┤  │
-│  │  Middleware                                │  │
-│  │  ├── authMiddleware (JWT 验证)             │  │
-│  │  └── errorHandler (全局错误)               │  │
+│  │  Routes (23 个路由模块)                     │  │
+│  │  ├── /health (公开)                        │  │
+│  │  ├── /api/auth (公开)                      │  │
+│  │  ├── /api/agents (Agent Token 保护)        │  │
+│  │  ├── /api/dashboard (JWT 保护)             │  │
+│  │  ├── /api/servers (JWT 保护)               │  │
+│  │  ├── /api/alerts, diagnosis, inspection,   │  │
+│  │  │   knowledge, topology (JWT 保护)         │  │
+│  │  ├── /api/scripts, chatops, models ...     │  │
+│  │  └── /api/audit-logs (JWT 保护)            │  │
 │  ├────────────────────────────────────────────┤  │
-│  │  Database Layer (db.ts)                    │  │
-│  │  ├── Migrations (10 个)                    │  │
-│  │  ├── Seed Data (演示数据)                   │  │
-│  │  └── CRUD Functions (40+)                  │  │
+│  │  Services Layer                            │  │
+│  │  ├── identity.service.ts                   │  │
+│  │  ├── model.service.ts                      │  │
+│  │  └── server.service.ts                     │  │
+│  ├────────────────────────────────────────────┤  │
+│  │  Core Modules                              │  │
+│  │  ├── ai.ts (AI 诊断引擎)                   │  │
+│  │  ├── chatops.ts (ChatOps 引擎)             │  │
+│  │  └── crypto.ts (加解密)                     │  │
+│  ├────────────────────────────────────────────┤  │
+│  │  Database Layer (db.ts, 71KB)              │  │
+│  │  ├── Migrations (10 个增量迁移)             │  │
+│  │  ├── Seed Data (演示数据自动填充)           │  │
+│  │  └── CRUD Functions (40+ 函数)             │  │
 │  └────────────────────────────────────────────┘  │
 └──────────────┬──────────────────┬────────────────┘
                │                  │
                ▼                  ▼
 ┌──────────────────┐    ┌──────────────────┐
-│   PostgreSQL     │    │      Redis       │
+│   PostgreSQL 16  │    │    Redis 7       │
 │   (核心数据存储)  │    │   (会话/缓存)    │
+│   Docker Volume  │    │  Docker Volume   │
 └──────────────────┘    └──────────────────┘
                ▲
-               │ HTTP/REST
+               │ HTTP/REST (Agent Token Auth)
+               │ POST /api/agents/register
+               │ POST /api/agents/:agentId/metrics
 ┌──────────────────────────────────┐
 │        Agent (采集端)            │
 │  ┌────────────────────────────┐  │
-│  │ register → sendMetrics →   │  │
-│  │ setInterval(10s)           │  │
+│  │ register() → sendMetrics() │  │
+│  │ → setInterval(10s)         │  │
+│  │ 采集: CPU/内存/磁盘/负载     │  │
+│  │ 进程/服务/日志/网络/磁盘详情  │  │
 │  └────────────────────────────┘  │
 └──────────────────────────────────┘
 ```
@@ -594,24 +732,30 @@ npm run agent:local
 
 | 模块 | 功能状态 |
 |------|----------|
-| SaaS Shell | 左侧导航栏 |
-| 仪表盘 | 数据汇总展示 |
-| ChatOps | 模拟控制面板 + Slash 命令提示 |
-| 服务器列表 | 列表 + 健康详情 |
-| 告警中心 | 告警列表 |
-| 脚本中心 | 脚本模板库 |
-| Slash 命令 | 命令参考 |
-| 包管理 | 版本管理 |
-| 文件管理 | 托管文件 |
+| SaaS Shell | 左侧导航栏 + 全局布局（Layout 组件） |
+| 仪表盘 | 数据汇总展示 + 快速操作按钮 + 错误状态 UI |
+| ChatOps | 自然语言控制台 + Slash 命令提示 + 历史搜索 + 流式响应 (SSE) |
+| 服务器列表 | 列表 + 健康详情 + 手动刷新 + CPU/内存趋势图 (Feature Flag) |
+| 告警中心 | 告警列表 + 批量操作（选择/确认/解决）+ 筛选 |
+| 脚本中心 | 脚本模板库 + 筛选 + 执行预览 + 确认弹窗 |
+| 命令中心 | Slash 命令参考 |
+| 巡检中心 | 巡检模板管理 + 按服务器执行 + 报告查看 |
+| 知识库 | 多分类知识文章管理 + 关联告警/服务器 |
+| 拓扑视图 | 业务系统拓扑图 + 节点状态可视化 |
+| 包管理 | 软件包版本管理 |
+| 文件管理 | 托管文件管理 |
 | 租户面板 | 多租户概览 |
-| 审批工单 | 审批流程 |
-| 模型管理 | AI 模型配置（本地/Ollama/Deepseek/OpenAI 兼容） |
-| 成员管理 | 用户管理 |
+| 审批工单 | 审批流程管理 |
+| 模型管理 | AI 模型配置（本地/Ollama/Deepseek/OpenAI 兼容）+ API Key 加密 |
+| 成员管理 | 用户管理 + 角色分配 |
 | 团队结构 | 组织架构 |
 | 角色权限 | RBAC 权限矩阵 |
-| Docker Compose | web + api + PostgreSQL + Redis |
-| Jenkins Pipeline | 安装、Lint、构建、Docker 构建、本地部署、冒烟测试 |
-| Agent | 本机指标采集（Mac） |
+| Docker Compose | web + api + PostgreSQL 16 + Redis 7（含 volumes、healthcheck、资源限制） |
+| Jenkins Pipeline | 安装、Lint、构建、Docker 构建、本地部署、冒烟测试（6 阶段） |
+| Agent | 本机指标采集（Mac/Linux/Windows）+ 扩展采集（进程/服务/日志/网络/磁盘详情） |
+| Feature Flag | `VITE_ENABLE_SERVER_DETAIL_CHARTS` 控制新功能启用 |
+| 速率限制 | IP 级别 API 限流（2000 req/min） |
+| 冒烟测试 | Agent 注册、指标上报、AI 诊断、ChatOps 计划/流式响应全链路验证 |
 
 ---
 
@@ -625,19 +769,25 @@ npm run agent:local
 | **Express.js** | 轻量级、成熟稳定、生态丰富 |
 | **PostgreSQL (原生 pg)** | 关系型数据强一致，JSONB 支持灵活扩展字段 |
 | **无 ORM** | 直接使用 SQL，保持轻量和可控的数据库操作 |
-| **内联迁移** | 无需额外迁移工具，代码即迁移 |
-| **TypeScript** | 端到端类型安全 |
+| **内联迁移** | 无需额外迁移工具，代码即迁移（10 个增量迁移） |
+| **TypeScript 5.7** | 端到端类型安全 |
 | **React 19** | 最新稳定版本，性能优化 |
-| **Vite** | 快速构建，优秀的开发体验 |
+| **Vite 6** | 快速构建，优秀的开发体验 |
 | **JWT 认证** | 无状态认证，适合 API 架构 |
+| **Agent Token 认证** | Agent 独立认证，通过 `x-agent-token` 头 + `AGENT_TOKEN` 环境变量 |
+| **速率限制** | IP 级别限流保护 API，防滥用 |
+| **Feature Flag** | Vite 环境变量控制功能开关，支持灰度发布 |
+| **Service 层** | 抽取 `identity`、`model`、`server` 三个服务模块 |
 
 ### 12.2 设计模式
 
-- **Repository 模式**: `db.ts` 集中管理所有数据访问逻辑
-- **Middleware 链式模式**: Express 中间件处理认证、错误
+- **Repository 模式**: `db.ts` 集中管理所有数据访问逻辑（40+ CRUD 函数）
+- **Middleware 链式模式**: Express 中间件处理 JSON 解析、CORS、限流、认证、错误
+- **Service 模式**: `services/` 层封装业务逻辑
 - **事务模式**: 关键操作（Agent 注册、模型默认切换）使用数据库事务
 - **种子数据模式**: 演示数据仅在表为空时插入
 - **迁移版本模式**: `schema_migrations` 表追踪已应用的迁移
+- **Feature Flag 模式**: 通过 `import.meta.env` 控制前端功能开关
 
 ---
 
@@ -645,16 +795,18 @@ npm run agent:local
 
 ### 13.1 添加新的 API 路由
 
-1. 在 `apps/api/src/routes/` 创建新路由文件
-2. 在 `apps/api/src/index.ts` 导入并注册路由
+1. 在 `apps/api/src/routes/` 创建新路由文件（如 `new-feature.ts`）
+2. 在 `apps/api/src/index.ts` 导入并注册路由（决定是否使用 `authMiddleware`）
 3. 在 `apps/api/src/db.ts` 添加对应的数据类型和 CRUD 函数
-4. 如需要新表，在 `migrations` 数组添加迁移
+4. 如需新表，在 `db.ts` 的 `migrations` 数组添加迁移
+5. 如需业务逻辑，在 `apps/api/src/services/` 创建对应的 service
 
 ### 13.2 添加新的前端页面
 
-1. 在 `apps/web/src/` 创建新的组件文件
-2. 在 `App.tsx` 的左侧导航栏添加入口
-3. 使用 `getAuthHeaders()` 和 `postJson()` 与后端 API 交互
+1. 在 `apps/web/src/pages/` 创建新的页面目录和 `index.tsx`
+2. 在 `App.tsx` 的路由逻辑和左侧导航栏添加入口
+3. 在 `apps/web/src/api/index.ts` 添加对应的 API 类型和请求函数
+4. 如需 Feature Flag，在 `import.meta.env` 添加对应的环境变量
 
 ### 13.3 扩展 Agent 采集指标
 
@@ -666,12 +818,16 @@ npm run agent:local
 
 ## 14. 已知限制与改进方向
 
-| 限制 | 说明 |
-|------|------|
-| 模型 API Key 明文存储 | 生产环境前需加密 |
-| 无独立的 Service 层 | 数据访问逻辑集中在 `db.ts`，复杂业务逻辑可抽取 Service |
-| Agent 仅支持 Mac 本地 | 可扩展至 Linux/Windows |
-| 无前端路由系统 | 当前为单页应用，可引入 react-router |
-| 无前端状态管理库 | 使用 React 原生状态管理，复杂场景建议引入 Zustand/Redux |
-| 密码哈希使用固定盐值 | 生产环境应使用独立盐值 |
-| Agent 注册端点公开 | 生产环境需要加入注册认证机制 |
+| 限制 | 说明 | 优先级 |
+|------|------|--------|
+| 模型 API Key 明文存储 | 生产环境前需加密（已通过 `crypto.ts` 支持加解密） | 高 |
+| 无前端路由系统 | 当前基于 `useState` 实现客户端路由，可引入 react-router | 中 |
+| 无前端状态管理库 | 使用 React 原生状态管理，复杂场景建议引入 Zustand/Redux | 中 |
+| Agent 仅完整测试 Mac | 已支持 Linux/Windows 平台采集，但测试覆盖不足 | 低 |
+| ChatOps 执行器未完全接入 | 当前为 plan-only 模式（`executionMode: "planned_only"`） | 高 |
+| Web SSH 未完善 | 命令审计、会话回放、敏感命令识别待实现 | 中 |
+| 插件中心未实现 | 插件系统仍处于预留阶段 | 低 |
+| 测试覆盖不足 | 仅 `ai.test.ts` 和 `chatops.test.ts` 两个测试文件 | 中 |
+| 前端无 E2E 测试 | 可引入 Playwright 进行端到端测试 | 低 |
+| 密码哈希需独立盐值 | 生产环境应使用独立盐值 | 高 |
+| Agent 注册端点公开 | 已通过 `agentAuthMiddleware` 保护，需配置 `AGENT_TOKEN` | 中 |

@@ -2,7 +2,9 @@
 
 NextOps is an AIOps and ChatOps operations platform with the product promise: "turn complex operations into one sentence."
 
-## Local Demo
+**Version**: v0.4.0 (Nightly) | **Tech Stack**: React 19 + Express + TypeScript + PostgreSQL + Redis
+
+## Quick Start
 
 Requirements:
 
@@ -10,54 +12,66 @@ Requirements:
 - Node.js 20+
 - npm 10+
 
-Optional model secret:
-
 ```bash
+# 1. Clone and install
+npm install
+
+# 2. (Optional) Configure AI model key
 cp .env.example .env
-# set DEEPSEEK_API_KEY in .env
-```
+# Set DEEPSEEK_API_KEY in .env
 
-Run with Docker Compose:
-
-```bash
+# 3. Start all services
 npm run docker:deploy
+
+# 4. Open
+# Web:  http://localhost:3019
+# API:  http://localhost:4000/health
+
+# 5. (Optional) Start local agent monitoring
+npm run agent:local
 ```
-
-Open:
-
-- Web: http://localhost:3019
-- API health: http://localhost:4000/health
 
 ## Repository Layout
 
 ```text
 apps/
-  api/      Express API demo service
-  web/      React/Vite SaaS console demo
+  api/      Express API service (23 route modules, JWT auth, rate limiting)
+  web/      React/Vite SaaS console (16 pages, Feature Flag support)
+  agent/    Lightweight Node.js metrics collector (zero runtime dependencies)
 deploy/
-  docker-compose.yml
+  docker-compose.yml    # 4 services: web, api, postgresql 16, redis 7
 docs/
-  Product and engineering docs
+  Product and engineering docs (8 documents)
+scripts/
+  smoke-test.sh, nightly-codex-dev.sh, install-nightly-codex-launchd.sh
 ```
 
 ## Current Demo Scope
 
-- SaaS shell with left navigation.
-- Dashboard.
-- ChatOps mock control panel with Slash command hints.
-- Server list and server health detail.
-- Alert center, script center, slash commands, package management and file management.
-- Tenant dashboard, approval review, model management, member management, team structure and role permissions.
-- Model management supports adding local/Ollama, Deepseek and OpenAI-compatible models. Deepseek `deepseek-v4-flash` is the default demo model when configured.
-- Docker Compose for web, API, PostgreSQL and Redis.
-- Jenkins pipeline for install, lint, build, Docker build, local deploy and smoke test.
+- **SaaS shell** with left navigation and global layout.
+- **Dashboard** with health metrics, quick action buttons, error state UI.
+- **ChatOps** with natural language input, Slash command hints, history search, SSE streaming.
+- **Server management** with real-time monitoring, CPU/memory trend charts (Feature Flag), health details.
+- **Alert center** with batch operations (select, acknowledge, resolve), filtering.
+- **Script center** with execution preview, confirmation modal, filtering.
+- **Inspection center** with template management and report generation.
+- **Knowledge base** with multi-category article management (incident, runbook, command, etc.).
+- **Topology view** with business system visualization and node status.
+- **Slash commands**, **package management**, **file management**.
+- **Tenant dashboard**, **approval review**, **model management**, **member/team/role management**.
+- **Model management**: local/Ollama, Deepseek, OpenAI-compatible models with API key encryption.
+- **Docker Compose** for web (nginx), API, PostgreSQL 16, Redis 7 (with volumes, healthchecks, resource limits).
+- **Jenkins pipeline** for install, lint, build, Docker build, local deploy and smoke test (6 stages).
+- **Rate limiting** (2000 req/min per IP).
+- **Feature Flag**: `VITE_ENABLE_SERVER_DETAIL_CHARTS` controls server detail chart feature.
 
 ## Data Persistence
 
-- PostgreSQL stores servers, alerts, scripts, AI model configuration, members, teams, roles and permissions.
-- API startup runs lightweight schema migrations through the `schema_migrations` table.
+- PostgreSQL stores servers, alerts, scripts, AI model configuration, members, teams, roles, permissions, and more.
+- API startup runs 10 incremental schema migrations through the `schema_migrations` table.
 - Demo seed data is inserted only when the related tables are empty.
-- Model API keys are never returned by API responses. Deepseek uses `DEEPSEEK_API_KEY` from `.env`; user-added model keys are persisted for the local demo and should be encrypted before production use.
+- Model API keys are encrypted/decrypted via `crypto.ts`; never returned in API responses.
+- Docker volumes (`nextops-postgres-data`, `nextops-redis-data`) ensure data persistence across container restarts.
 
 ## CI/CD
 
@@ -70,7 +84,7 @@ Pipeline stages:
 - `Build`: `npm run build`
 - `Docker Build`: `docker compose -f deploy/docker-compose.yml build`
 - `Deploy Local Demo`: `npm run docker:deploy` on `main` or when `DEPLOY_LOCAL=true`
-- `Smoke Test`: `npm run smoke`
+- `Smoke Test`: `npm run smoke` (verifies Agent registration, metrics, AI diagnosis, ChatOps plan/stream)
 
 Local smoke test:
 
@@ -93,4 +107,31 @@ npm run agent:local
 ```
 
 The Agent registers the current machine as a `local` server and reports CPU, memory,
-disk, load average and host inventory to the API every 10 seconds.
+disk, load average, processes, services, logs, network connections, and host inventory
+to the API every 10 seconds (configurable via `NEXTOPS_AGENT_INTERVAL_MS`).
+
+## Development
+
+```bash
+# Start individual services in dev mode
+npm run dev -w @nextops/api    # API on port 4000
+npm run dev -w @nextops/web    # Web on port 3000
+npm run dev -w @nextops/agent  # Agent (local monitoring)
+
+# Run all tests
+npm run test
+
+# Run lint (TypeScript type checking)
+npm run lint
+
+# Build all apps
+npm run build
+```
+
+## Documentation
+
+- [README.md](README.md) — Project overview and quick start
+- [FEATURES.md](FEATURES.md) — Complete feature list and API reference
+- [CODE_WIKI.md](CODE_WIKI.md) — Detailed code architecture and development guide
+- [CHANGELOG.md](CHANGELOG.md) — Version history
+- [docs/](docs/) — Product and engineering design documents

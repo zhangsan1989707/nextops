@@ -28,19 +28,24 @@ router.post("/", asyncHandler(async (req, res) => {
     return;
   }
 
+  const contextWindow = String(body.contextWindow ?? "32k").trim() || "32k";
+  const latencyMs = provider.toLowerCase().includes("local") ? 180 : 650;
+  const costLevel = String(body.costLevel ?? "medium").trim() || "medium";
+  const capabilities = Array.isArray(body.capabilities) && body.capabilities.length > 0
+    ? body.capabilities.map(String).map((item: string) => item.trim()).filter(Boolean)
+    : ["ChatOps", "日志诊断", "修复方案生成"];
+  
   const nextModel: any = {
     id,
     name,
     provider,
     type,
-    status: "enabled",
+    status: "enabled" as const,
     isDefault: Boolean(body.setDefault),
-    contextWindow: String(body.contextWindow ?? "32k").trim() || "32k",
-    latencyMs: provider.toLowerCase().includes("local") ? 180 : 650,
-    costLevel: String(body.costLevel ?? "medium").trim() || "medium",
-    capabilities: Array.isArray(body.capabilities) && body.capabilities.length > 0
-      ? body.capabilities.map(String).map((item: string) => item.trim()).filter(Boolean)
-      : ["ChatOps", "日志诊断", "修复方案生成"],
+    contextWindow,
+    latencyMs,
+    costLevel,
+    capabilities,
     endpoint
   };
 

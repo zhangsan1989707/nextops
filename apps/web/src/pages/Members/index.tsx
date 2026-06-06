@@ -1,8 +1,24 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Search, User, RefreshCw, Clock, FileText, Settings, UserCheck, Shield } from "lucide-react";
-import { fetchMembers, fetchAuditLogs } from "../../api/client";
+import { fetchMembers, fetchAuditLogs, toggleMember, updateMemberRole } from "../../api/client";
 import type { MemberRecord, AuditLogRecord } from "../../api/client";
 import { useToast } from "../../components/common/Toast";
+
+// 防抖工具函数
+function debounce<T extends (...args: unknown[]) => unknown>(func: T, wait: number): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// XSS转义工具函数
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 
 export function Members() {
   const [members, setMembers] = useState<MemberRecord[]>([]);
@@ -12,15 +28,19 @@ export function Members() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"list" | "activity">("list");
   const [selectedMember, setSelectedMember] = useState<MemberRecord | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [newRole, setNewRole] = useState("");
   const toast = useToast();
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchMembers();
       setMembers(data.items);
-    } catch {
-      toast.error("加载成员数据失败");
+    } catch (error) {
+      toast.error("加载成员数据失败: " + (error as Error)?.message);
     } finally {
       setLoading(false);
     }
@@ -31,8 +51,8 @@ export function Members() {
     try {
       const data = await fetchAuditLogs(50);
       setAuditLogs(data.items);
-    } catch {
-      toast.error("加载操作记录失败");
+    } catch (error) {
+      toast.error("加载操作记录失败: " + (error as Error)?.message);
     } finally {
       setAuditLoading(false);
     }
@@ -51,10 +71,83 @@ export function Members() {
     }
   }, [activeTab, loadData, loadAuditLogs]);
 
-  const filteredMembers = members.filter(member =>
-    member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    member.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // 防抖搜索处理
+  const handleSearch = useCallback((value: string) => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      setSearchQuery(value);
+    }, 300);
+  }, []);
+
+  // 过滤成员（包含XSS转义）
+  const filteredMembers = members.filter(member => {
+    const safeQuery = escapeHtml(searchQuery.toLowerCase());
+    return (
+      member.name.toLowerCase().includes(safeQuery) ||
+      member.email.toLowerCase().includes(safeQuery)
+    );
+  });
+
+  // 处理切换用户状态
+  const handleToggleMember = useCallback(async (member: MemberRecord) => {
+    const confirmMsg = member.status === "active"
+      ? `确定要禁用用户 ${member.name} 吗？`
+      : `确定要启用用户 ${member.name} 吗？`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const updatedMember = await toggleMember(member.id);
+      if (updatedMember) {
+        setMembers(prev => prev.map(m => m.id === member.id ? updatedMember : m));
+        if (selectedMember?.id === member.id) {
+          setSelectedMember(updatedMember);
+        }
+        toast.success(`用户 ${member.name} 已${updatedMember.status === "active" ? "启用" : "禁用"}`);
+      }
+    } catch (error) {
+      toast.error("操作失败: " + (error as Error)?.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [selectedMember, toast]);
+
+  // 打开角色修改弹窗
+  const handleOpenRoleModal = useCallback((member: MemberRecord) => {
+    setNewRole(member.role);
+    setShowRoleModal(true);
+  }, []);
+
+  // 处理角色修改
+  const handleUpdateRole = useCallback(async () => {
+    if (!selectedMember || !newRole) return;
+
+    const confirmMsg = `确定要将 ${selectedMember.name} 的角色修改为 ${newRole} 吗？`;
+    if (!window.confirm(confirmMsg)) {
+      setShowRoleModal(false);
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const updatedMember = await updateMemberRole(selectedMember.id, newRole);
+      if (updatedMember) {
+        setMembers(prev => prev.map(m => m.id === selectedMember.id ? updatedMember : m));
+        setSelectedMember(updatedMember);
+        setShowRoleModal(false);
+        toast.success(`用户 ${selectedMember.name} 角色已更新为 ${newRole}`);
+      }
+    } catch (error) {
+      toast.error("角色修改失败: " + (error as Error)?.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [selectedMember, newRole, toast]);
 
   const getActionIcon = (action: string) => {
     if (action.includes("login") || action.includes("登录")) return <User size={14} />;
@@ -65,8 +158,13 @@ export function Members() {
     return <Clock size={14} />;
   };
 
-  const formatTime = (dateStr: string) => {
+  // 增强的formatTime函数，包含无效日期处理
+  const formatTime = (dateStr: string | null) => {
+    if (!dateStr) return "从未登录";
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      return "无效日期";
+    }
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const minutes = Math.floor(diff / 60000);
@@ -136,7 +234,7 @@ export function Members() {
                   type="text"
                   placeholder="搜索成员..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearch(e.target.value)}
                 />
               </div>
             </div>
@@ -302,11 +400,71 @@ export function Members() {
               )}
 
               <div className="member-actions">
-                <button className="secondary-button" type="button">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => handleOpenRoleModal(selectedMember)}
+                  disabled={actionLoading}
+                >
                   <Shield size={16} /> 修改角色
                 </button>
-                <button className="secondary-button" type="button">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => handleToggleMember(selectedMember)}
+                  disabled={actionLoading}
+                >
                   <UserCheck size={16} /> {selectedMember.status === "active" ? "禁用账号" : "启用账号"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 角色修改弹窗 */}
+      {showRoleModal && selectedMember && (
+        <div className="modal-overlay" onClick={() => setShowRoleModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <Shield size={18} />
+                <span>修改角色</span>
+              </div>
+              <button className="close-btn" onClick={() => setShowRoleModal(false)} type="button">×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: "16px" }}>为用户 <strong>{selectedMember.name}</strong> 选择新角色：</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "24px" }}>
+                {["Owner", "SRE", "Reviewer", "Developer"].map((role) => (
+                  <label key={role} style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="role"
+                      value={role}
+                      checked={newRole === role}
+                      onChange={() => setNewRole(role)}
+                    />
+                    <span>{role}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setShowRoleModal(false)}
+                  disabled={actionLoading}
+                >
+                  取消
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={handleUpdateRole}
+                  disabled={actionLoading || newRole === selectedMember.role}
+                >
+                  {actionLoading ? "处理中..." : "确认修改"}
                 </button>
               </div>
             </div>

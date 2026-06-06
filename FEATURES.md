@@ -5,12 +5,15 @@
 - **项目名称**: NextOps
 - **产品类型**: AIOps / ChatOps 智能运维平台
 - **产品标语**: 当复杂操作变成一句话
+- **当前版本**: v0.4.0 (Nightly)
 - **技术栈**: 
-  - 后端: Node.js + Express + TypeScript
-  - 前端: React + Vite + TypeScript
-  - 数据库: PostgreSQL + Redis
+  - 后端: Node.js 20+ + Express + TypeScript 5.7 (ESM)
+  - 前端: React 19 + Vite 6 + TypeScript 5.7
+  - 数据库: PostgreSQL 16 + Redis 7
+  - Agent: 轻量级 Node.js 采集端
   - 部署: Docker Compose
-  - CI/CD: Jenkins
+  - CI/CD: Jenkins Pipeline
+- **架构模式**: Monorepo (npm Workspaces)
 
 ## 功能模块总览
 
@@ -146,7 +149,42 @@
 - `/alert` - 告警处理
 - `/diagnose` - AI诊断
 
-### 7. 包管理
+### 7. 巡检中心
+**路由**: `/inspection`
+**API**: `/api/inspection`
+
+#### 功能点
+- 支持巡检模板管理（创建、编辑、删除）
+- 支持多类别巡检模板（系统、安全、性能、合规）
+- 支持巡检清单项配置（命令 + 预期输出）
+- 支持按服务器执行巡检并生成报告
+- 支持巡检报告查看（通过/未通过明细）
+- 支持巡检结果与 AI 诊断联动
+
+### 8. 知识库
+**路由**: `/knowledge`
+**API**: `/api/knowledge`
+
+#### 功能点
+- 支持知识文章创建、编辑、删除
+- 支持多种分类：故障案例(incident)、Runbook(runbook)、命令参考(command)、巡检(inspection)、部署(deploy)、应急(emergency)
+- 支持标签管理
+- 支持关联告警和服务器
+- 支持从 ChatOps 诊断结果一键生成知识条目
+- 支持知识文章搜索
+
+### 9. 拓扑视图
+**路由**: `/topology`
+**API**: `/api/topology`
+
+#### 功能点
+- 展示业务系统拓扑结构
+- 支持服务节点及其依赖关系可视化
+- 显示节点实时状态（CPU、内存使用率）
+- 支持数据库、中间件、依赖服务等多层节点类型
+- 支持拓扑数据与服务器资产关联
+
+### 10. 包管理
 **路由**: `/packages`
 **API**: `/api/packages`
 
@@ -160,7 +198,7 @@
 - 支持校验文件哈希
 - 支持包使用记录
 
-### 8. 文件管理
+### 11. 文件管理
 **路由**: `/files`
 **API**: `/api/files`
 
@@ -173,7 +211,7 @@
 - 支持日志文件查看
 - 支持文件操作审计
 
-### 9. 租户管理
+### 12. 租户管理
 **路由**: `/tenants`
 **API**: `/api/tenants`
 
@@ -185,7 +223,7 @@
 - 支持租户启用、禁用和资源限制
 - 支持租户级数据隔离
 
-### 10. 审批中心
+### 13. 审批中心
 **路由**: `/approvals`
 **API**: `/api/approvals`
 
@@ -199,7 +237,7 @@
 - 支持审批超时提醒
 - 支持工单审计
 
-### 11. 模型配置
+### 14. 模型配置
 **路由**: `/models`
 **API**: `/api/models`
 
@@ -213,8 +251,9 @@
 - 支持敏感信息脱敏策略
 - 支持模型可用性检测
 - 支持添加本地/Ollama、Deepseek和OpenAI兼容模型
+- 支持模型 API Key 加密存储
 
-### 12. 成员管理
+### 15. 成员管理
 **路由**: `/members`
 **API**: `/api/members`
 
@@ -226,7 +265,7 @@
 - 支持查看成员操作记录
 - 支持单点登录扩展
 
-### 13. 团队管理
+### 16. 团队管理
 **路由**: `/teams`
 **API**: `/api/teams`
 
@@ -237,7 +276,7 @@
 - 支持团队与租户、环境、服务器资源绑定
 - 支持团队级权限继承
 
-### 14. 角色管理
+### 17. 角色管理
 **路由**: `/roles`
 **API**: `/api/roles`
 
@@ -344,55 +383,106 @@
 
 ## 中间件与基础设施
 
-### 认证中间件
-- JWT Token验证
-- Agent认证（独立认证流程）
-- 多租户数据隔离
+### 认证中间件 (`apps/api/src/middleware/auth.ts`)
+- JWT Token 签发与验证 (`signToken`, `verifyToken`)
+- `authMiddleware` — 保护业务 API
+- `optionalAuth` — 可选认证
+- `requireRole` — 角色权限校验
 
-### 限流中间件
-- 基于IP的请求限流
-- 可配置限流规则
+### Agent 认证中间件 (`apps/api/src/middleware/agent-auth.ts`)
+- 通过 `x-agent-token` 请求头验证 `AGENT_TOKEN`
+- 保护 Agent 注册和指标上报端点
 
-### 错误处理
+### 限流中间件 (`apps/api/src/middleware/rate-limiter.ts`)
+- 基于 IP 的请求限流（默认 2000 req/min）
+- 自动清理过期条目
+
+### 错误处理中间件 (`apps/api/src/middleware/error.ts`)
 - 统一错误响应格式
-- 错误日志记录
+- 全局异常捕获
 
-### 数据库
-- PostgreSQL存储
-- 轻量级Schema迁移
-- 演示数据自动填充
+### 后端 Services 层 (`apps/api/src/services/`)
+- `identity.service.ts` — 身份聚合（成员/团队/角色/权限概览）
+- `model.service.ts` — AI 模型 CRUD + API Key 加解密 + 模型统计
+- `server.service.ts` — 服务器服务（Agent 注册、指标记录、健康信息聚合）
 
-## 前端组件
+### 数据库 (`apps/api/src/db.ts`)
+- PostgreSQL 连接池（pg 库，最大 20 连接）
+- 10 个增量 Schema 迁移
+- 演示数据自动填充（仅在相关表为空时）
+- 40+ CRUD 函数
+
+## 前端架构
+
+### 目录结构 (`apps/web/src/`)
+```
+├── App.tsx                  # 应用入口（路由 + 认证状态）
+├── main.tsx                 # React 挂载点
+├── api/
+│   ├── index.ts             # API 类型定义 + 请求封装
+│   ├── client.ts            # HTTP 客户端（fetch 封装）
+│   └── auth-events.ts       # 认证过期事件处理
+├── hooks/
+│   └── useWebSocket.ts      # WebSocket 实时通信 Hook
+├── routes/
+│   └── index.ts             # 路由配置
+├── utils/
+│   └── theme.ts             # 主题工具
+├── components/
+│   ├── CommandPalette.tsx   # 命令面板 (⌘K)
+│   ├── ErrorBoundary.tsx    # 错误边界
+│   ├── HealthRing.tsx       # 健康度环形图
+│   ├── Models.tsx           # AI 模型管理组件
+│   ├── Skeleton.tsx         # 加载骨架屏
+│   ├── Sparkline.tsx        # 迷你趋势图
+│   ├── Toast.tsx            # Toast 通知
+│   ├── charts/
+│   │   └── LineChart.tsx    # SVG 折线图
+│   ├── common/
+│   │   ├── CopilotDrawer.tsx  # AI 助手侧边抽屉
+│   │   ├── ServerHealth.tsx   # 服务器健康状态
+│   │   └── Toast.tsx          # 公共 Toast
+│   └── layout/
+│       └── Layout.tsx       # 全局布局（侧边栏 + 顶栏）
+├── pages/
+│   ├── Alerts/              # 告警管理页
+│   ├── Approvals/           # 审批管理页
+│   ├── ChatOps/             # ChatOps 对话页
+│   ├── Commands/            # 命令中心页
+│   ├── Dashboard/           # 仪表盘页
+│   ├── Files/               # 文件管理页
+│   ├── Login/               # 登录页
+│   ├── Members/             # 成员管理页
+│   ├── Models/              # 模型管理页
+│   ├── Packages/            # 包管理页
+│   ├── Roles/               # 角色管理页
+│   ├── Scripts/             # 脚本中心页
+│   ├── Servers/             # 服务器管理页
+│   ├── Teams/               # 团队管理页
+│   └── Tenants/             # 租户管理页
+└── styles/
+    ├── styles.css            # 主样式
+    ├── styles-enterprise.css # 企业版样式
+    ├── styles-upgrade.css    # 升级版样式
+    └── models-v2.css         # 模型页面样式
+```
+
+### Feature Flag
+- `VITE_ENABLE_SERVER_DETAIL_CHARTS` — 控制服务器详情页 CPU/内存趋势图（默认启用）
 
 ### 公共组件
-- CommandPalette - 命令面板
+- CommandPalette - 命令面板 (⌘K 快捷键)
 - ServerHealth - 服务器健康状态
 - Toast - 通知提示
 - ErrorBoundary - 错误边界
 - HealthRing - 健康度环形图
-- LineChart - 折线图
-- Sparkline - 微线图
+- LineChart - SVG 折线图
+- Sparkline - 迷你趋势图
 - Skeleton - 加载骨架屏
 - CopilotDrawer - AI助手抽屉
 
 ### 布局组件
 - Layout - 主布局（侧边栏、顶栏、内容区）
-
-### 页面组件
-- Dashboard
-- ChatOps
-- Alerts
-- Servers
-- Scripts
-- Commands
-- Packages
-- Files
-- Tenants
-- Approvals
-- Models
-- Members
-- Teams
-- Roles
 
 ### WebSocket支持
 - 实时消息推送
@@ -442,26 +532,31 @@
 
 ## API路由汇总
 
-| 模块 | 路由 | 方法 | 描述 |
-|------|------|------|------|
-| Health | `/health` | GET | 健康检查 |
-| Auth | `/api/auth/*` | * | 认证相关 |
-| Dashboard | `/api/dashboard/summary` | GET | 仪表盘汇总数据 |
-| Servers | `/api/servers` | GET, POST | 服务器列表、新增 |
-| Servers | `/api/servers/:id` | GET, PUT | 服务器详情、更新 |
-| Servers | `/api/servers/:id/processes` | GET | 进程列表 |
-| Servers | `/api/servers/:id/services` | GET | 服务列表 |
-| Servers | `/api/servers/:id/logs` | GET | 日志内容 |
-| Agents | `/api/agents/*` | * | Agent管理（部分公开） |
-| Alerts | `/api/alerts` | GET | 告警列表 |
-| Alerts | `/api/alerts/:id` | GET | 告警详情 |
-| Scripts | `/api/scripts` | GET | 脚本列表 |
-| Scripts | `/api/scripts/:id` | GET | 脚本详情 |
+### 公开路由
+| 模块 | 路由 | 方法 | 认证 | 描述 |
+|------|------|------|------|------|
+| Health | `/health` | GET | 无 | 健康检查 |
+| Auth | `/api/auth/*` | * | 无 | 认证（登录/注册/获取用户信息） |
+| Agents | `/api/agents/register` | POST | Agent Token | Agent 注册 |
+| Agents | `/api/agents/:agentId/metrics` | POST | Agent Token | Agent 指标上报 |
+
+### JWT 保护路由
+| 模块 | 路由前缀 | 方法 | 描述 |
+|------|----------|------|------|
+| Dashboard | `/api/dashboard` | GET | 仪表盘汇总数据 |
+| Servers | `/api/servers` | GET, POST, PUT | 服务器管理 |
+| Servers | `/api/servers/:id/diagnose` | POST | AI 诊断 |
+| Alerts | `/api/alerts` | GET, POST, PUT | 告警管理 |
+| Diagnosis | `/api/diagnosis/alert/:alertId` | POST | 告警 AI 诊断 |
+| Scripts | `/api/scripts` | GET, POST, PUT, DELETE | 脚本管理 |
 | Scripts | `/api/scripts/:id/run` | POST | 运行脚本 |
 | Slash-Commands | `/api/slash-commands` | * | Slash指令管理 |
-| ChatOps | `/api/chatops/message` | POST | ChatOps消息 |
-| ChatOps | `/api/chatops/stream` | POST | ChatOps流式响应 |
-| Models | `/api/models` | * | 模型配置 |
+| ChatOps | `/api/chatops/message` | POST | ChatOps 消息（非流式） |
+| ChatOps | `/api/chatops/stream` | POST | ChatOps 流式响应 (SSE) |
+| Inspection | `/api/inspection` | GET, POST | 巡检模板与报告 |
+| Knowledge | `/api/knowledge` | GET, POST, PUT, DELETE | 知识库管理 |
+| Topology | `/api/topology` | GET | 拓扑视图 |
+| Models | `/api/models` | * | AI 模型配置 |
 | Members | `/api/members` | * | 成员管理 |
 | Teams | `/api/teams` | * | 团队管理 |
 | Roles | `/api/roles` | * | 角色管理 |
@@ -472,42 +567,69 @@
 | Tenants | `/api/tenants` | * | 租户管理 |
 | Audit-Logs | `/api/audit-logs` | * | 审计日志 |
 
+> 共 23 个路由模块，1 个公开路由 + 2 个 Agent Token 保护路由 + 21 个 JWT 保护路由
+
 ## 数据库表结构
 
-核心数据表：
-- servers - 服务器
-- alerts - 告警
-- scripts - 脚本
-- slash_commands - Slash指令
-- tasks - 任务记录
-- models - AI模型配置
-- members - 成员
-- teams - 团队
-- roles - 角色
-- tenants - 租户
-- packages - 包
-- files - 文件
-- approvals - 审批
-- audit_logs - 审计日志
-- server_inventory - 服务器资产信息
-- server_metrics - 服务器指标
-- extended_metrics - 扩展指标（进程、服务等）
+核心数据表（通过 10 个增量迁移管理）：
+- `servers` — 服务器资产
+- `alerts` — 告警事件
+- `scripts` — 脚本定义
+- `slash_commands` — Slash指令
+- `task_records` — 任务执行记录
+- `ai_models` — AI模型配置
+- `members` — 成员
+- `teams` — 团队（树形层级）
+- `roles` — 角色定义（含权限列表）
+- `permissions` — 权限点
+- `tenants` — 租户
+- `packages` — 软件包
+- `managed_files` — 托管文件
+- `approval_tickets` — 审批工单
+- `audit_logs` — 审计日志
+- `agent_instances` — Agent实例
+- `server_inventory` — 服务器硬件清单
+- `server_metrics` — 服务器性能指标
+- `schema_migrations` — 迁移版本追踪
 
 ## 技术债务与未来规划
 
-### 已实现但需增强
-- ChatOps执行器尚未完全接入
-- Web SSH需要进一步完善
+### 已实现
+- ✅ SaaS 管理台（16 个页面）
+- ✅ ChatOps 自然语言交互 + Slash 指令
+- ✅ 服务器纳管 + Agent 指标采集
+- ✅ AI 诊断（关联日志、指标、告警）
+- ✅ 巡检中心（模板 + 报告）
+- ✅ 知识库（多分类管理）
+- ✅ 拓扑视图
+- ✅ RBAC 权限控制
+- ✅ 多租户数据隔离
+- ✅ 审批工单
+- ✅ 模型管理（多供应商）
+- ✅ Docker Compose 一键部署
+- ✅ Jenkins CI/CD Pipeline
+- ✅ 速率限制
+- ✅ 审计日志
+- ✅ Feature Flag 机制
+
+### 需增强
+- ChatOps 执行器尚未完全接入（当前为 plan-only 模式）
+- Web SSH 需要进一步完善
 - 插件中心暂未实现
 - 包管理和文件管理功能待完善
+- 前端路由未使用 react-router（基于 useState 实现）
+- 模型 API Key 生产环境需加密存储
 
 ### 待实现功能
 - 复杂跨云成本优化
-- 自研完整CI/CD引擎
-- 移动端原生App
-- 高级AI诊断能力（完全自动化）
+- 自研完整 CI/CD 引擎
+- 移动端原生 App
+- 高级 AI 诊断能力（完全自动化）
+- Web SSH 命令审计与会话回放
+- 前端状态管理库（Zustand/Redux）
+- 自动化测试覆盖（目前仅有 AI 和 ChatOps 测试）
 
 ---
 
-*文档生成时间: 2026-05-21*
-*项目版本: V1.0*
+*文档更新时间: 2026-06-05*
+*项目版本: v0.4.0 (Nightly)*
