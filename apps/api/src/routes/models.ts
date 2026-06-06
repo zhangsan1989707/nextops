@@ -35,7 +35,7 @@ router.post("/", asyncHandler(async (req, res) => {
     ? body.capabilities.map(String).map((item: string) => item.trim()).filter(Boolean)
     : ["ChatOps", "日志诊断", "修复方案生成"];
   
-  const nextModel = {
+  const nextModel: any = {
     id,
     name,
     provider,
