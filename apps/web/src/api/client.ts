@@ -401,6 +401,17 @@ export type AlertListResponse = {
   groups: AlertGroup[];
 };
 
+export type AuditLogRecord = {
+  id: string;
+  action: string;
+  actor: string;
+  resourceType: string;
+  resourceId: string;
+  summary: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type AuthResponse = {
   token: string;
   user: {
@@ -593,4 +604,8 @@ export async function toggleRolePermission(
   permission: string
 ): Promise<RoleRecord> {
   return apiPut<RoleRecord>(`/roles/${id}/permissions/${encodeURIComponent(permission)}`, {});
+}
+
+export async function fetchAuditLogs(limit = 50): Promise<{ items: AuditLogRecord[] }> {
+  return apiCall<{ items: AuditLogRecord[] }>(`/audit-logs?limit=${limit}`);
 }
