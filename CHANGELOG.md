@@ -35,26 +35,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Dashboard buttons now functional (were previously non-interactive)
 
----
-
 ## [0.2.0] - 2026-05-22
 
 ### Added
-- Dashboard quick action buttons with navigation support
-- Dashboard error state UI with retry mechanism
-- Server list manual refresh functionality
-- Toast notifications for better UX feedback
+- **巡检中心 (Inspection)**: 服务器巡检模板管理与报告生成
+- **知识库 (Knowledge)**: 运维知识文章管理，支持故障案例、Runbook、命令参考等分类
+- **拓扑视图 (Topology)**: 业务系统拓扑图可视化
+- **AI 诊断独立路由**: `/api/diagnosis` 独立诊断端点
+- **Agent 认证中间件**: `agent-auth.ts` 独立 Agent 注册认证
+- **速率限制中间件**: `rate-limiter.ts` IP 级别 API 限流
+- **前端架构重构**: 页面从 `components/` 迁移至 `pages/` 目录结构
+- **前端 API 客户端层**: 新增 `api/`、`hooks/`、`routes/`、`utils/` 目录
+- **后端 Services 层**: `identity.service.ts`、`model.service.ts`、`server.service.ts`
 - `.nightly` directory for automated development workflow
-- `feature_ideas.md` for tracking feature inspiration
+- Nightly Codex automation with launchd scheduling
 
 ### Changed
 - Refactored `loadData` in App.tsx to use `useCallback` for proper scope
-- Improved loading states with refresh indicators
+- 前端采用页面级目录组织（Dashboard、ChatOps、Servers 等独立目录）
+- API 路由模块化，每个路由独立文件
+- Docker Compose 增加 volumes 持久化、healthcheck 和资源限制
 
 ### Fixed
 - Dashboard buttons now functional (were previously non-interactive)
-
----
 
 ## [0.1.0] - 2026-05-21
 
@@ -72,7 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model management for AI providers
 - Member, team, and role management
 - Audit logging
+- Docker Compose deployment (web + api + postgresql + redis)
+- Jenkins CI/CD pipeline
+- Local Agent for machine monitoring
 
-[Unreleased]: https://github.com/nextops/nextops/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nextops/nextops/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/nextops/nextops/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/nextops/nextops/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nextops/nextops/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nextops/nextops/releases/tag/v0.1.0

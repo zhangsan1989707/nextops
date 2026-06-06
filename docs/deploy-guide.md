@@ -9,58 +9,51 @@
 ## 一、部署架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Docker Compose                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │    nginx    │  │   API       │  │  PostgreSQL │        │
-│  │  (前端:3019) │  │  (:4000)   │  │  (:5432)    │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘        │
-│         │                │                │                  │
-│         │                └────────┬───────┘                  │
-│         │                         │                          │
-│         │                    ┌─────────┐                     │
-│         └───────────────────▶│  Redis  │                     │
-│                              │ (:6379) │                     │
-│                              └─────────┘                     │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        Docker Compose                             │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐        │
+│  │  web (nginx) │  │  api (Node)  │  │  PostgreSQL 16 │        │
+│  │  :3019 → :80 │  │  :4000       │  │  :5432         │        │
+│  │  healthcheck │  │  healthcheck │  │  healthcheck   │        │
+│  │  limit:128M  │  │  limit:512M  │  │  limit:512M    │        │
+│  └──────┬───────┘  └──────┬───────┘  └───────┬────────┘        │
+│         │                 │                   │                  │
+│         │    /api/ 代理   │                   │                  │
+│         └─────────────────┘                   │                  │
+│                   │                           │                  │
+│                   │              ┌────────────┘                  │
+│                   │              │                               │
+│                   │         ┌────┴─────┐                         │
+│                   └────────▶│ Redis 7  │                         │
+│                             │ :6379    │                         │
+│                             │ limit:128M│                        │
+│                             └──────────┘                         │
+│                                                                  │
+│  Volumes:                                                        │
+│  ├── nextops-postgres-data (数据库持久化)                         │
+│  └── nextops-redis-data (缓存持久化)                              │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## 二、关键配置要点
 
 ### 1. API 服务 - 环境变量加载
 
-**必须添加 dotenv 配置**，否则环境变量无法在生产环境读取：
-
-```typescript
-// apps/api/src/db.ts
-import dotenv from "dotenv";
-dotenv.config();
-
-import pg from "pg";
-// ...
-```
-
-```typescript
-// apps/api/src/index.ts
-import dotenv from "dotenv";
-dotenv.config();
-
-import express from "express";
-// ...
-```
+项目已内置 `dotenv.config()`，在 `apps/api/src/index.ts` 和 `apps/api/src/db.ts` 开头自动加载 `.env` 文件。
 
 ### 2. API 服务 - CORS 中间件
 
-**必须配置 CORS**，否则前端跨域请求失败：
+已内置 CORS 配置，通过 `ALLOWED_ORIGINS` 环境变量控制（逗号分隔）：
 
 ```typescript
 // apps/api/src/index.ts
 import cors from "cors";
 
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map(s => s.trim()).filter(Boolean);
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(",") ?? "*",
+  origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : false,
   credentials: true
 }));
 ```
@@ -68,8 +61,9 @@ app.use(cors({
 ### 3. 前端 nginx 配置
 
 **关键点**：
-- 监听端口改为 `80`（不是 3000）
+- 监听端口为 `80`
 - 代理路径用 `/api/`（带尾部斜杠）
+- 支持 WebSocket 升级
 
 ```nginx
 server {
@@ -95,49 +89,12 @@ server {
 
 ### 4. docker-compose.yml 配置
 
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: nextops
-      POSTGRES_USER: nextops
-      POSTGRES_PASSWORD: nextops
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nextops -d nextops"]
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
-  api:
-    build:
-      context: ../apps/api
-    ports:
-      - "4000:4000"
-    environment:
-      DATABASE_URL: postgres://nextops:nextops@postgres:5432/nextops
-      REDIS_URL: redis://redis:6379
-      ALLOWED_ORIGINS: "*"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  web:
-    build:
-      context: ../apps/web
-    volumes:
-      - ../apps/web/nginx.conf:/etc/nginx/conf.d/default.conf
-    ports:
-      - "3019:80"
-    depends_on:
-      - api
-```
+实际部署使用项目根目录下的 `deploy/docker-compose.yml`，关键特性：
+- **Volumes 持久化**: `nextops-postgres-data` 和 `nextops-redis-data`
+- **健康检查**: 所有 4 个服务均有 healthcheck
+- **资源限制**: PostgreSQL 512M、Redis 128M、API 512M、Web 128M
+- **依赖顺序**: API 依赖 PostgreSQL + Redis 健康检查通过；Web 依赖 API 健康检查通过
+- **环境变量**: API 通过 `env_file: ../.env` 加载环境变量
 
 ### 5. .env 文件
 
@@ -146,8 +103,13 @@ PORT=4000
 NODE_ENV=production
 DATABASE_URL=postgres://nextops:nextops@postgres:5432/nextops
 REDIS_URL=redis://redis:6379
-JWT_SECRET=nextops-production-secret-key-2026
-ALLOWED_ORIGINS=*
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+ENCRYPTION_KEY=your-encryption-key-change-in-production
+AGENT_TOKEN=your-agent-token-change-in-production
+DEEPSEEK_API_KEY=your-deepseek-api-key-here
+OPENAI_API_KEY=your-openai-api-key-here
+ALLOWED_ORIGINS=http://localhost:3019,https://your-domain.com
+CLEANUP_DEMO_DATA=false
 ```
 
 ## 三、部署命令
@@ -198,6 +160,9 @@ curl http://127.0.0.1:3019/
 
 # 通过前端代理测试 API
 curl http://127.0.0.1:3019/api/models
+
+# 运行完整冒烟测试
+npm run smoke
 ```
 
 ## 四、常见问题排查
@@ -261,12 +226,12 @@ docker compose up --build -d
 
 ## 六、端口说明
 
-| 服务 | 容器内部端口 | 主机端口 | 用途 |
-|------|-------------|---------|------|
-| PostgreSQL | 5432 | 5432 | 数据库 |
-| Redis | 6379 | 6379 | 缓存 |
-| API | 4000 | 4000 | 后端 API |
-| Web | 80 | 3019 | 前端界面 |
+| 服务 | 容器内部端口 | 主机端口 | 用途 | 资源限制 |
+|------|-------------|---------|------|----------|
+| PostgreSQL 16 | 5432 | 5432 | 数据库 | 512M |
+| Redis 7 | 6379 | 6379 | 缓存 | 128M |
+| API (Node.js) | 4000 | 4000 | 后端 API | 512M |
+| Web (nginx) | 80 | 3019 | 前端界面 | 128M |
 
 ## 七、添加智谱 AI 模型
 
@@ -323,9 +288,13 @@ docker compose up -d web
 
 重建服务前，确认以下几点：
 
-1. **CORS 配置**：确保 `apps/api/src/index.ts` 中有 cors 中间件
-2. **dotenv 配置**：确保 `apps/api/src/db.ts` 和 `apps/api/src/index.ts` 开头有 `dotenv.config()`
+1. **CORS 配置**：已内置在 `apps/api/src/index.ts`，通过 `ALLOWED_ORIGINS` 环境变量配置
+2. **dotenv 配置**：已内置在 `apps/api/src/index.ts` 和 `apps/api/src/db.ts` 开头
 3. **数据库连接**：确保 `docker-compose.yml` 中 `DATABASE_URL` 指向正确的数据库
+4. **JWT_SECRET**：生产环境必须修改为强随机字符串
+5. **ENCRYPTION_KEY**：用于模型 API Key 加密，生产环境必须修改
+6. **AGENT_TOKEN**：Agent 注册认证令牌，生产环境必须修改
+7. **速率限制**：默认 2000 req/min/IP，已内置在 `rate-limiter.ts` 中
 
 ### 服务器已有的数据
 
